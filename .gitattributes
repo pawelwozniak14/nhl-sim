@@ -1,0 +1,19 @@
+# Normalise text files to LF, both in the repo and in the working tree.
+# Overrides core.autocrlf=true (set system-wide by Git for Windows) for matched files.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files: never touch line endings, never diff as text
+*.parquet binary
+*.duckdb binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.gz binary
+*.zip binary

@@ -1,0 +1,40 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# --- Virtual environment (uv) ---
+.venv/
+
+# --- Tool caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Project data & build output ---
+data/raw/
+site_output/
+
+# --- Private working notes (Claude sessions; kept out of the public repo) ---
+/PROJECT_CONTEXT.md
+/_claude/
+
+# --- Secrets (e.g. Odds API key) ---
+.env
+
+# --- Unfinished browser downloads (downloads land in the repo root) ---
+*.crdownload
+*.part
+*.tmp
+
+# --- OS ---
+Thumbs.db
+desktop.ini
+.DS_Store
