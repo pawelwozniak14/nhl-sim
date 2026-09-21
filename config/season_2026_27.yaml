@@ -1,0 +1,86 @@
+# config/season_2026_27.yaml
+# NHL 2026-27 season structure.
+#
+# Generated on 2026-09-21 from NHL API responses (api-web.nhle.com):
+#   - dates:        /v1/standings-season (entry 20262027)
+#   - alignment:    /v1/standings/now (2025-26 final), confirmed for 2026-27 by the
+#                   TOR and UTA 2026-27 club schedules (4 games vs each division opponent)
+#   - team IDs:     /v1/club-schedule-season/{TOR,UTA}/20262027
+#   - schedule format and 84 games: counted from the TOR and UTA schedules
+# All strings are quoted on purpose: YAML 1.1 turns some bare words (yes/no/on/off)
+# into booleans.
+
+season_id: 20262027
+label: "2026-27"
+
+regular_season:
+  start_date: 2026-09-29
+  end_date: 2027-04-10
+  games_per_team: 84
+
+# Games vs each opponent, by relationship. Optional: omit for seasons without a
+# uniform format (e.g. 82-game seasons). When present, the loader checks that it
+# adds up to games_per_team for every team.
+schedule_format:
+  division: 4
+  conference_other_division: 3
+  other_conference: 2
+
+points:
+  win: 2
+  ot_loss: 1
+  regulation_loss: 0
+
+playoffs:
+  format: "division_wildcard"   # top N per division + wild cards per conference
+  division_qualifiers: 3
+  wild_cards_per_conference: 2
+  series_best_of: 7
+
+conferences:
+  - {abbrev: "E", name: "Eastern"}
+  - {abbrev: "W", name: "Western"}
+
+divisions:
+  - {abbrev: "A", name: "Atlantic", conference: "E"}
+  - {abbrev: "M", name: "Metropolitan", conference: "E"}
+  - {abbrev: "C", name: "Central", conference: "W"}
+  - {abbrev: "P", name: "Pacific", conference: "W"}
+
+teams:
+  # Atlantic
+  - {abbrev: "BOS", nhl_team_id: 6, name: "Boston Bruins", division: "A"}
+  - {abbrev: "BUF", nhl_team_id: 7, name: "Buffalo Sabres", division: "A"}
+  - {abbrev: "DET", nhl_team_id: 17, name: "Detroit Red Wings", division: "A"}
+  - {abbrev: "FLA", nhl_team_id: 13, name: "Florida Panthers", division: "A"}
+  - {abbrev: "MTL", nhl_team_id: 8, name: "Montréal Canadiens", division: "A"}
+  - {abbrev: "OTT", nhl_team_id: 9, name: "Ottawa Senators", division: "A"}
+  - {abbrev: "TBL", nhl_team_id: 14, name: "Tampa Bay Lightning", division: "A"}
+  - {abbrev: "TOR", nhl_team_id: 10, name: "Toronto Maple Leafs", division: "A"}
+  # Metropolitan
+  - {abbrev: "CAR", nhl_team_id: 12, name: "Carolina Hurricanes", division: "M"}
+  - {abbrev: "CBJ", nhl_team_id: 29, name: "Columbus Blue Jackets", division: "M"}
+  - {abbrev: "NJD", nhl_team_id: 1, name: "New Jersey Devils", division: "M"}
+  - {abbrev: "NYI", nhl_team_id: 2, name: "New York Islanders", division: "M"}
+  - {abbrev: "NYR", nhl_team_id: 3, name: "New York Rangers", division: "M"}
+  - {abbrev: "PHI", nhl_team_id: 4, name: "Philadelphia Flyers", division: "M"}
+  - {abbrev: "PIT", nhl_team_id: 5, name: "Pittsburgh Penguins", division: "M"}
+  - {abbrev: "WSH", nhl_team_id: 15, name: "Washington Capitals", division: "M"}
+  # Central
+  - {abbrev: "CHI", nhl_team_id: 16, name: "Chicago Blackhawks", division: "C"}
+  - {abbrev: "COL", nhl_team_id: 21, name: "Colorado Avalanche", division: "C"}
+  - {abbrev: "DAL", nhl_team_id: 25, name: "Dallas Stars", division: "C"}
+  - {abbrev: "MIN", nhl_team_id: 30, name: "Minnesota Wild", division: "C"}
+  - {abbrev: "NSH", nhl_team_id: 18, name: "Nashville Predators", division: "C"}
+  - {abbrev: "STL", nhl_team_id: 19, name: "St. Louis Blues", division: "C"}
+  - {abbrev: "UTA", nhl_team_id: 68, name: "Utah Mammoth", division: "C"}
+  - {abbrev: "WPG", nhl_team_id: 52, name: "Winnipeg Jets", division: "C"}
+  # Pacific
+  - {abbrev: "ANA", nhl_team_id: 24, name: "Anaheim Ducks", division: "P"}
+  - {abbrev: "CGY", nhl_team_id: 20, name: "Calgary Flames", division: "P"}
+  - {abbrev: "EDM", nhl_team_id: 22, name: "Edmonton Oilers", division: "P"}
+  - {abbrev: "LAK", nhl_team_id: 26, name: "Los Angeles Kings", division: "P"}
+  - {abbrev: "SEA", nhl_team_id: 55, name: "Seattle Kraken", division: "P"}
+  - {abbrev: "SJS", nhl_team_id: 28, name: "San Jose Sharks", division: "P"}
+  - {abbrev: "VAN", nhl_team_id: 23, name: "Vancouver Canucks", division: "P"}
+  - {abbrev: "VGK", nhl_team_id: 54, name: "Vegas Golden Knights", division: "P"}
