@@ -50,7 +50,7 @@ def test_team_list_schema_and_pseudo_teams_dropped(teams: pl.DataFrame) -> None:
     assert teams.schema == pl.Schema(TEAMS_SCHEMA)
     assert 70 not in teams["team_id"].to_list()  # "To be determined"
     assert 99 not in teams["team_id"].to_list()  # "NHL"
-    assert teams.height == 8
+    assert teams.height == 14  # 16 entries minus 2 pseudo-teams
 
 
 def test_arizona_and_both_utah_ids_share_one_lineage(teams: pl.DataFrame) -> None:

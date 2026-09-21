@@ -10,7 +10,6 @@ Only regular-season games (``gameType == 2``) are kept.
 
 from __future__ import annotations
 
-import io
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from pathlib import Path
@@ -20,7 +19,7 @@ import polars as pl
 
 from nhlsim.config import SeasonConfig
 from nhlsim.ingest.nhl_api import WEB_BASE, NHLClient
-from nhlsim.io import atomic_write_bytes
+from nhlsim.io import write_parquet_atomic
 
 REGULAR_SEASON = 2
 
@@ -41,6 +40,18 @@ SCHEDULE_SCHEMA: dict[str, pl.DataType] = {
     "away_score": pl.Int64(),
     "last_period_type": pl.String(),  # REG / OT / SO once finished (only REG seen so far)
 }
+
+# Game states that mean "played, result final". Finished regular-season games settle to
+# OFF; FINAL is seen right after a game and on preseason games. Any other state (future,
+# in progress) is not played, even if the game already has a score: scores also exist
+# during live games.
+PLAYED_STATES: frozenset[str] = frozenset({"OFF", "FINAL"})
+
+
+def is_played() -> pl.Expr:
+    """Polars expression: True for games whose result is final."""
+    return pl.col("game_state").is_in(sorted(PLAYED_STATES))
+
 
 # Only used while merging: which club's schedule a row came from.
 SOURCE_COLUMN = "source_team"
@@ -271,9 +282,7 @@ def check_schedule_against_config(games: pl.DataFrame, config: SeasonConfig) -> 
 def save_schedule(games: pl.DataFrame, path: Path) -> None:
     """Write a schedule to Parquet (atomically; safe against interrupted writes)."""
     _check_schema(games, "schedule to save")
-    buffer = io.BytesIO()
-    games.write_parquet(buffer)
-    atomic_write_bytes(Path(path), buffer.getvalue())
+    write_parquet_atomic(games, Path(path))
 
 
 def load_schedule(path: Path) -> pl.DataFrame:

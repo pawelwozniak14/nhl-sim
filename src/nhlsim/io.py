@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import logging
 import os
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+import polars as pl
 
 log = logging.getLogger(__name__)
 
@@ -43,3 +46,10 @@ def atomic_write_bytes(
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
+
+
+def write_parquet_atomic(df: pl.DataFrame, path: Path) -> None:
+    """Write a DataFrame to Parquet via :func:`atomic_write_bytes`."""
+    buffer = io.BytesIO()
+    df.write_parquet(buffer)
+    atomic_write_bytes(Path(path), buffer.getvalue())
