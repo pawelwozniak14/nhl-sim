@@ -10,13 +10,17 @@ Only regular-season games (``gameType == 2``) are kept.
 
 from __future__ import annotations
 
+import io
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 import polars as pl
 
+from nhlsim.config import SeasonConfig
 from nhlsim.ingest.nhl_api import WEB_BASE, NHLClient
+from nhlsim.io import atomic_write_bytes
 
 REGULAR_SEASON = 2
 
@@ -172,3 +176,113 @@ def _ids(df: pl.DataFrame, limit: int = 10) -> str:
     ids = sorted(set(df["game_id"].to_list()))
     more = f" (+{len(ids) - limit} more)" if len(ids) > limit else ""
     return ", ".join(map(str, ids[:limit])) + more
+
+
+def find_schedule_problems(games: pl.DataFrame, config: SeasonConfig) -> list[str]:
+    """Compare a merged season schedule with the season config; return all problems found.
+
+    Checks: game IDs unique; every game in the config's season and within the regular
+    season's dates; team IDs and abbreviations as in the config; ``games_per_team`` games
+    per team, half at home (neutral-site games count for the listed home team, as the
+    NHL counts them); games per opponent as in ``schedule_format``, if the config has one;
+    and the league-wide total of ``n_teams * games_per_team / 2``.
+    """
+    problems: list[str] = []
+    rs = config.regular_season
+    n_per_team = rs.games_per_team
+
+    duplicated = games.filter(pl.col("game_id").is_duplicated())
+    if duplicated.height:
+        problems.append(f"duplicate game ids: {_ids(duplicated)}")
+    wrong_season = games.filter(pl.col("season_id") != config.season_id)
+    if wrong_season.height:
+        problems.append(f"games from another season: {_ids(wrong_season)}")
+    outside = games.filter(~pl.col("game_date").is_between(rs.start_date, rs.end_date))
+    if outside.height:
+        problems.append(f"games outside {rs.start_date}..{rs.end_date}: {_ids(outside)}")
+
+    known = {t.abbrev: t.nhl_team_id for t in config.teams}
+    for side in ("home", "away"):
+        pairs = games.select(f"{side}_abbrev", f"{side}_team_id").unique().rows()
+        for abbrev, team_id in sorted(pairs):
+            if abbrev not in known:
+                problems.append(f"team {abbrev} (id {team_id}) is not in the config")
+            elif known[abbrev] != team_id:
+                problems.append(f"team {abbrev} has id {team_id}; config says {known[abbrev]}")
+
+    appearances = pl.concat(
+        [
+            games.select(
+                team=pl.col("home_abbrev"), opponent=pl.col("away_abbrev"), home=pl.lit(1)
+            ),
+            games.select(
+                team=pl.col("away_abbrev"), opponent=pl.col("home_abbrev"), home=pl.lit(0)
+            ),
+        ]
+    )
+    per_team = {
+        r["team"]: r
+        for r in appearances.group_by("team")
+        .agg(pl.len().alias("games"), pl.sum("home").alias("home"))
+        .iter_rows(named=True)
+    }
+    for t in config.teams:
+        r = per_team.get(t.abbrev, {"games": 0, "home": 0})
+        if r["games"] != n_per_team:
+            problems.append(f"{t.abbrev} has {r['games']} games, expected {n_per_team}")
+        if 2 * r["home"] != r["games"]:
+            problems.append(f"{t.abbrev} has {r['home']} home and {r['games'] - r['home']} away")
+
+    fmt = config.schedule_format
+    if fmt is not None:
+        division = {t.abbrev: t.division for t in config.teams}
+        conference = {t.abbrev: config.conference_of(t.abbrev) for t in config.teams}
+        pair_counts = appearances.group_by("team", "opponent").agg(pl.len().alias("n"))
+        seen = {(r[0], r[1]): r[2] for r in pair_counts.rows()}
+        for a in division:
+            for b in division:
+                if a == b:
+                    continue
+                if division[a] == division[b]:
+                    expected = fmt.division
+                elif conference[a] == conference[b]:
+                    expected = fmt.conference_other_division
+                else:
+                    expected = fmt.other_conference
+                n = seen.get((a, b), 0)
+                if n != expected and a < b:  # report each pair once
+                    problems.append(f"{a} vs {b}: {n} games, expected {expected}")
+
+    expected_total = len(config.teams) * n_per_team // 2
+    if games.height != expected_total:
+        problems.append(f"{games.height} games in total, expected {expected_total}")
+    return problems
+
+
+def check_schedule_against_config(games: pl.DataFrame, config: SeasonConfig) -> None:
+    """Raise :class:`ScheduleError` listing every problem from :func:`find_schedule_problems`."""
+    problems = find_schedule_problems(games, config)
+    if problems:
+        shown = "\n  - ".join(problems[:30])
+        more = f"\n  (+{len(problems) - 30} more)" if len(problems) > 30 else ""
+        raise ScheduleError(f"schedule does not match the config:\n  - {shown}{more}")
+
+
+def save_schedule(games: pl.DataFrame, path: Path) -> None:
+    """Write a schedule to Parquet (atomically; safe against interrupted writes)."""
+    _check_schema(games, "schedule to save")
+    buffer = io.BytesIO()
+    games.write_parquet(buffer)
+    atomic_write_bytes(Path(path), buffer.getvalue())
+
+
+def load_schedule(path: Path) -> pl.DataFrame:
+    """Read a schedule written by :func:`save_schedule`, checking its columns and types."""
+    games = pl.read_parquet(path)
+    _check_schema(games, str(path))
+    return games
+
+
+def _check_schema(games: pl.DataFrame, what: str) -> None:
+    if games.schema != pl.Schema(SCHEDULE_SCHEMA):
+        raise ScheduleError(f"{what}: unexpected schema {dict(games.schema)}")

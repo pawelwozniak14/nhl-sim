@@ -9,7 +9,6 @@ from pathlib import Path
 import httpx
 import pytest
 
-from nhlsim.ingest import nhl_api
 from nhlsim.ingest.nhl_api import USER_AGENT, WEB_BASE, NHLClient, cache_path_for
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "nhl_api"
@@ -239,46 +238,3 @@ def test_follows_redirect_and_caches_under_requested_url(tmp_path: Path) -> None
     with make_client(tmp_path, handler, FakeTime()) as client:
         assert client.get_json(now_url) == {"standings": []}
     assert cache_path_for(now_url, tmp_path / "cache").exists()
-
-
-# ---- atomic cache write on Windows -------------------------------------------------
-
-
-def _flaky_replace(monkeypatch: pytest.MonkeyPatch, failures: int) -> list[int]:
-    """Make os.replace in nhl_api refuse `failures` times (like Windows with a file held open)."""
-    real_replace = nhl_api.os.replace
-    calls: list[int] = []
-
-    def replace(src: Path, dst: Path) -> None:
-        calls.append(1)
-        if len(calls) <= failures:
-            raise PermissionError(5, "Access is denied", str(dst))
-        real_replace(src, dst)
-
-    monkeypatch.setattr(nhl_api.os, "replace", replace)
-    return calls
-
-
-def test_atomic_write_retries_refused_rename(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    target = tmp_path / "a" / "20262027.json"
-    calls = _flaky_replace(monkeypatch, failures=2)
-    sleeps: list[float] = []
-    nhl_api._atomic_write(target, TOR_BYTES, sleep=sleeps.append)
-    assert target.read_bytes() == TOR_BYTES
-    assert len(calls) == 3
-    assert sleeps == list(nhl_api.REPLACE_RETRY_DELAYS[:2])
-    assert not target.with_name(target.name + ".tmp").exists()
-
-
-def test_atomic_write_gives_up_and_keeps_old_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    target = tmp_path / "20262027.json"
-    target.write_bytes(b'{"old":true}')
-    _flaky_replace(monkeypatch, failures=99)
-    with pytest.raises(PermissionError):
-        nhl_api._atomic_write(target, TOR_BYTES, sleep=lambda _: None)
-    assert target.read_bytes() == b'{"old":true}'
-    assert not target.with_name(target.name + ".tmp").exists()

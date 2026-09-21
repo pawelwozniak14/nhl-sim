@@ -20,6 +20,8 @@ htmlcov/
 
 # --- Project data & build output ---
 data/raw/
+# data/processed/ is reproducible: uv run python scripts/fetch_schedule.py
+data/processed/
 site_output/
 
 # --- Private working notes (Claude sessions; kept out of the public repo) ---
