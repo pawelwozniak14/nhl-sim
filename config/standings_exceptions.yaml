@@ -1,0 +1,21 @@
+# config/standings_exceptions.yaml
+# Games the NHL's official standings score differently from their plain result.
+#
+# no_point_losses: the listed team lost in overtime but gets no point: the NHL records a
+# regulation loss (L, not OTL). The winner keeps a normal overtime win (it counts for
+# ROW). Rule: a team that pulls its goalie for an extra attacker in overtime and loses on
+# an empty-net goal forfeits the overtime-loss point.
+#
+# Found by the cross-check in scripts/fetch_results.py (our records vs the NHL's final
+# standings). Add an entry only with evidence; team_records() verifies each entry is an
+# overtime loss by that team on that date.
+
+no_point_losses:
+  - game_id: 2023021166
+    game_date: 2024-03-30
+    team: "MIN"
+    rule: "Pulled goalie in overtime, lost on an empty-net goal: overtime-loss point forfeited"
+    source: >-
+      VGK 2 @ MIN 1 (OT). Play-by-play: situation code 1340 (MIN goalie pulled, 4 skaters)
+      when Marchessault scored at 3:30 of OT. AP recap: https://www.cbssports.com/nhl/gametracker/boxscore/NHL_20240330_LV@MIN
+      NHL official 2023-24 standings: MIN L 34, OTL 9, 87 points.

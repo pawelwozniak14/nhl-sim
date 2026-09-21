@@ -55,6 +55,23 @@ _SEASON_FIELDS = {
 }
 
 
+# Official record columns in a standings row -> our record column names
+# (see nhlsim.simulate.standings.RECORD_COLUMNS).
+_RECORD_FIELDS = {
+    "gp": "gamesPlayed",
+    "w": "wins",
+    "l": "losses",
+    "otl": "otLosses",
+    "points": "points",
+    "rw": "regulationWins",
+    "row": "regulationPlusOtWins",
+    "sow": "shootoutWins",
+    "sol": "shootoutLosses",
+    "gf": "goalFor",
+    "ga": "goalAgainst",
+}
+
+
 class SeasonDataError(ValueError):
     """Season or standings data is missing fields or inconsistent."""
 
@@ -108,15 +125,43 @@ def parse_standings_teams(payload: Mapping[str, Any], season_id: int) -> pl.Data
     return df.sort("abbrev")
 
 
+def parse_standings_records(payload: Mapping[str, Any], season_id: int) -> pl.DataFrame:
+    """Official team records from a ``/v1/standings/{date}`` response.
+
+    Columns match ``nhlsim.simulate.standings.RECORDS_SCHEMA``.
+    """
+    rows = []
+    for r in _require(payload, "standings", "standings response"):
+        abbrev = _require(_require(r, "teamAbbrev", "standings row"), "default", "teamAbbrev")
+        where = f"standings row {abbrev}"
+        if (sid := _require(r, "seasonId", where)) != season_id:
+            raise SeasonDataError(f"{where} is from season {sid}, not {season_id}")
+        rows.append(
+            {"season_id": sid, "abbrev": abbrev}
+            | {col: _require(r, key, where) for col, key in _RECORD_FIELDS.items()}
+        )
+    schema = {"season_id": pl.Int64(), "abbrev": pl.String()} | {
+        c: pl.Int64() for c in _RECORD_FIELDS
+    }
+    return pl.DataFrame(rows, schema=schema, orient="row").sort("season_id", "abbrev")
+
+
+def fetch_final_standings(
+    client: NHLClient, seasons: pl.DataFrame, season_id: int, *, refresh: bool = False
+) -> dict[str, Any]:
+    """The raw ``/v1/standings/{date}`` response for a season's final standings date."""
+    match = seasons.filter(pl.col("season_id") == season_id)
+    if match.height != 1:
+        raise SeasonDataError(f"season {season_id} not in the seasons table")
+    return client.get_json(standings_url(match["standings_end"].item()), refresh=refresh)
+
+
 def fetch_season_teams(
     client: NHLClient, seasons: pl.DataFrame, season_id: int, *, refresh: bool = False
 ) -> pl.DataFrame:
     """A season's teams, from the standings on its final date (see ``seasons``)."""
-    match = seasons.filter(pl.col("season_id") == season_id)
-    if match.height != 1:
-        raise SeasonDataError(f"season {season_id} not in the seasons table")
-    end = match["standings_end"].item()
-    return parse_standings_teams(client.get_json(standings_url(end), refresh=refresh), season_id)
+    payload = fetch_final_standings(client, seasons, season_id, refresh=refresh)
+    return parse_standings_teams(payload, season_id)
 
 
 def _require(obj: Mapping[str, Any], key: str, where: str) -> Any:

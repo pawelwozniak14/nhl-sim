@@ -6,8 +6,11 @@ Run from the repo root:
     uv run python scripts/fetch_results.py --first 20232024 --last 20242025
 
 Finished seasons never change, so cached responses are reused unless --refresh is given.
-Every season is checked before anything is written; problems in any season are all
-reported, and the script exits with status 1 without writing files.
+Every season is checked before anything is written: the result checks, then each team's
+record (W, L, OTL, points, RW, ROW, SO W/L, GF, GA) recomputed from our games must equal
+the NHL's official final standings, after applying the documented exceptions in
+config/standings_exceptions.yaml. Problems in any season are all reported, and the
+script exits with status 1 without writing files.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from pathlib import Path
 
 import polars as pl
 
+from nhlsim.config import load_standings_exceptions
 from nhlsim.ingest.franchises import TEAM_LIST_URL, parse_team_list
 from nhlsim.ingest.nhl_api import NHLClient
 from nhlsim.ingest.results import (
@@ -31,10 +35,13 @@ from nhlsim.ingest.schedule import ScheduleError
 from nhlsim.ingest.seasons import (
     STANDINGS_SEASON_URL,
     SeasonDataError,
+    fetch_final_standings,
+    parse_standings_records,
     parse_standings_seasons,
     seasons_between,
 )
 from nhlsim.io import write_parquet_atomic
+from nhlsim.simulate.standings import StandingsError, compare_records, team_records
 
 REPO = Path(__file__).resolve().parents[1]
 log = logging.getLogger("fetch_results")
@@ -46,9 +53,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--last", type=int, default=20252026)
     parser.add_argument("--cache-dir", type=Path, default=REPO / "data" / "raw" / "nhl_api")
     parser.add_argument("--out-dir", type=Path, default=REPO / "data" / "processed")
+    parser.add_argument(
+        "--exceptions", type=Path, default=REPO / "config" / "standings_exceptions.yaml"
+    )
     parser.add_argument("--refresh", action="store_true", help="ignore cached responses")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    no_point_losses = load_standings_exceptions(args.exceptions).no_point_losses
 
     problems: dict[int, list[str]] = {}
     frames: list[pl.DataFrame] = []
@@ -64,7 +75,18 @@ def main(argv: list[str] | None = None) -> int:
             except (ScheduleError, SeasonDataError) as e:
                 problems[season_id] = [str(e)]
                 continue
-            if found := find_result_problems(games):
+            found = find_result_problems(games)
+            official = parse_standings_records(
+                fetch_final_standings(client, seasons, season_id, refresh=args.refresh),
+                season_id,
+            )
+            try:
+                ours = team_records(games, no_point_losses=no_point_losses)
+            except StandingsError as e:
+                problems[season_id] = [*found, str(e)]
+                continue
+            found += compare_records(ours, official)
+            if found:
                 problems[season_id] = found
             frames.append(games)
 
@@ -80,12 +102,19 @@ def main(argv: list[str] | None = None) -> int:
     save_results(results, out)
     write_parquet_atomic(wanted, args.out_dir / "seasons.parquet")
     write_parquet_atomic(teams, args.out_dir / "teams.parquet")
-    _print_summary(results, wanted, out)
+    _print_summary(results, wanted, out, len(no_point_losses))
     return 0
 
 
-def _print_summary(results: pl.DataFrame, seasons: pl.DataFrame, out: Path) -> None:
-    print(f"\nSaved {results.height} games to {out}\n")
+def _print_summary(
+    results: pl.DataFrame, seasons: pl.DataFrame, out: Path, n_exceptions: int
+) -> None:
+    print(f"\nSaved {results.height} games to {out}")
+    n_records = results.select("season_id", "home_abbrev").unique().height
+    print(
+        f"All {n_records} team-season records match the NHL's official final standings "
+        f"({n_exceptions} documented exception(s) applied).\n"
+    )
     per_season = (
         results.group_by("season_id")
         .agg(

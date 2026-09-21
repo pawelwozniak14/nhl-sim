@@ -230,3 +230,49 @@ def load_season_config(path: Path | str) -> SeasonConfig:
     if not isinstance(raw, dict):
         raise TypeError(f"{path}: expected a YAML mapping, got {type(raw).__name__}")
     return SeasonConfig.model_validate(raw)
+
+
+# ---- standings exceptions ---------------------------------------------------------------
+
+
+class NoPointLoss(_Strict):
+    """An overtime loss the NHL scores as a regulation loss (no point) for ``team``."""
+
+    game_id: int
+    game_date: date
+    team: str = Field(pattern=r"^[A-Z]{3}$")
+    rule: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _regular_season_game_id(self) -> NoPointLoss:
+        # e.g. 2023021166 = start year 2023, type 02 (regular season), game 1166
+        if not (
+            1_000_000_000 <= self.game_id <= 9_999_999_999 and self.game_id // 10_000 % 100 == 2
+        ):
+            raise ValueError(f"game_id {self.game_id} is not a regular-season game id")
+        return self
+
+    @property
+    def season_id(self) -> int:
+        start = self.game_id // 1_000_000
+        return start * 10_000 + start + 1
+
+
+class StandingsExceptions(_Strict):
+    no_point_losses: tuple[NoPointLoss, ...] = ()
+
+    @model_validator(mode="after")
+    def _unique(self) -> StandingsExceptions:
+        if dups := _duplicates([e.game_id for e in self.no_point_losses]):
+            raise ValueError(f"duplicate game ids in no_point_losses: {dups}")
+        return self
+
+
+def load_standings_exceptions(path: Path | str) -> StandingsExceptions:
+    """Read and validate ``config/standings_exceptions.yaml``."""
+    with Path(path).open(encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    if not isinstance(raw, dict):
+        raise TypeError(f"{path}: expected a YAML mapping, got {type(raw).__name__}")
+    return StandingsExceptions.model_validate(raw)
