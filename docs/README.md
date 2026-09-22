@@ -17,9 +17,9 @@ The first model in the project and the baseline every later model must beat.
    chosen and scored, and the full results.
 4. [Decisions](elo/04-decisions.md): every design choice with its reasoning,
    including what was tried and rejected.
+5. [Implementation](elo/05-implementation.md): where each piece lives in the code,
+   and how to reproduce every number.
 
-Planned, in this order:
+Planned:
 
-5. Implementation: where each piece lives in the code, and how to reproduce every
-   number.
 6. Roadmap and limitations: what is planned next and what the model cannot capture.
