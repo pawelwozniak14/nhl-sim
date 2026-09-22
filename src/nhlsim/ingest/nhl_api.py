@@ -22,6 +22,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -94,6 +95,8 @@ class NHLClient:
         self._clock = clock
         self._sleep = sleep
         self._last_request: float | None = None
+        #: URLs answered from the cache by :meth:`get_json`, in call order.
+        self.cache_hits: list[str] = []
         self._http = httpx.Client(
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
             timeout=timeout,
@@ -128,12 +131,20 @@ class NHLClient:
         path = cache_path_for(url, self.cache_dir)
         if not refresh and path.exists():
             log.debug("cache hit %s", url)
+            self.cache_hits.append(url)
             return json.loads(path.read_bytes())
 
         content = self._fetch(url)
         data = json.loads(content)  # raises before anything is cached
         atomic_write_bytes(path, content)
         return data
+
+    def cached_at(self, url: str) -> datetime | None:
+        """When the cached response for ``url`` was saved (UTC), or None if not cached."""
+        path = cache_path_for(url, self.cache_dir)
+        if not path.exists():
+            return None
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
 
     # ---- internals ------------------------------------------------------------
 

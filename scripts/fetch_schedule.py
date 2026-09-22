@@ -2,8 +2,12 @@
 
 Run from the repo root:
 
-    uv run python scripts/fetch_schedule.py            # uses the cache where available
-    uv run python scripts/fetch_schedule.py --refresh  # re-download every club schedule
+    uv run python scripts/fetch_schedule.py           # re-download every club schedule
+    uv run python scripts/fetch_schedule.py --cached  # reuse saved responses where present
+
+The current season's schedule can change (postponements), so every run downloads it
+fresh unless --cached is given; with --cached the summary says how old the saved
+responses are.
 
 Exits with status 1, without writing the Parquet file, if the schedule fails a check.
 """
@@ -13,6 +17,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -37,7 +42,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out", type=Path, help="default: data/processed/schedule_<season>.parquet"
     )
-    parser.add_argument("--refresh", action="store_true", help="ignore cached responses")
+    parser.add_argument(
+        "--cached",
+        action="store_true",
+        help="reuse saved responses instead of downloading (the schedule may be stale)",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -47,8 +56,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with NHLClient(args.cache_dir) as client:
             games = fetch_season_schedule(
-                client, [t.abbrev for t in cfg.teams], cfg.season_id, refresh=args.refresh
+                client, [t.abbrev for t in cfg.teams], cfg.season_id, refresh=not args.cached
             )
+            saved = [t for url in client.cache_hits if (t := client.cached_at(url)) is not None]
         check_schedule_against_config(games, cfg)
     except ScheduleError as e:
         log.error("%s", e)
@@ -56,6 +66,14 @@ def main(argv: list[str] | None = None) -> int:
 
     save_schedule(games, out)
     _print_summary(games, out)
+    if saved:
+        oldest = min(saved)
+        age = datetime.now(UTC) - oldest
+        print(
+            f"\nCACHED: {len(saved)} of {len(cfg.teams)} club schedules came from the cache;"
+            f" oldest saved {oldest:%Y-%m-%d %H:%M} UTC ({age.total_seconds() / 3600:.1f} h ago)."
+            " Run without --cached for the current schedule."
+        )
     return 0
 
 

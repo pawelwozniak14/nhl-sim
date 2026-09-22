@@ -3,7 +3,9 @@
 Response bodies are a trimmed real response (see tests/fixtures/nhl_api/README.md).
 """
 
+import os
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -119,6 +121,27 @@ def test_refresh_refetches_and_overwrites(tmp_path: Path) -> None:
         client.get_json(TOR_URL, refresh=True)
     assert len(seen) == 2
     assert cache_path_for(TOR_URL, tmp_path / "cache").read_bytes() == newer
+
+
+def test_cache_hits_are_recorded(tmp_path: Path) -> None:
+    handler, _ = responder(ok(), ok())
+    with make_client(tmp_path, handler, FakeTime()) as client:
+        client.get_json(TOR_URL)  # network: not a hit
+        assert client.cache_hits == []
+        client.get_json(TOR_URL)
+        assert client.cache_hits == [TOR_URL]
+        client.get_json(TOR_URL, refresh=True)  # network again: not a hit
+        assert client.cache_hits == [TOR_URL]
+
+
+def test_cached_at(tmp_path: Path) -> None:
+    handler, _ = responder(ok())
+    with make_client(tmp_path, handler, FakeTime()) as client:
+        assert client.cached_at(TOR_URL) is None
+        client.get_json(TOR_URL)
+        saved = datetime(2026, 9, 21, 14, 2, 3, tzinfo=UTC)
+        os.utime(cache_path_for(TOR_URL, tmp_path / "cache"), (0, saved.timestamp()))
+        assert client.cached_at(TOR_URL) == saved
 
 
 def test_non_ascii_survives_cache_round_trip(tmp_path: Path) -> None:

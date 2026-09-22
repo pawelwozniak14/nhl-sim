@@ -239,11 +239,14 @@ uv run python scripts/tune_elo.py --final        # part 3, section 10 (config/el
 uv run python scripts/preseason_ratings.py       # part 1: 2026-27 opening ratings
 ```
 
-The fetch scripts cache API responses under `data/raw/nhl_api/`, so later runs are
-fast and don't touch the API again unless asked (`--refresh`). The results are
-deterministic: the same data and settings give the same numbers to the last digit.
-The one caveat is the 2026-27 schedule, which the NHL can still change (postponements);
-fetching it on a different day could change the preview slightly.
+The fetch scripts save API responses under `data/raw/nhl_api/`. `fetch_results.py`
+reuses them (finished seasons never change; `--refresh` downloads them again), so
+later runs are fast and don't touch the API. `fetch_schedule.py` downloads the
+2026-27 schedule fresh on every run, because the NHL can still change it
+(postponements); `--cached` reuses the saved files instead and prints how old the
+oldest one is. The results are deterministic: the same data and settings give the
+same numbers to the last digit. The one caveat is that schedule: fetched on a
+different day, it can differ, and so can the preview.
 
 ## 10. Adding or changing something
 
