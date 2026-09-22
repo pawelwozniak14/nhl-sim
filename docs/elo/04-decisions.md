@@ -216,7 +216,7 @@ refusal to print settings). That safeguard caught a real problem once (decision 
 **Evidence.** From an all-1500 start, one season isn't enough: opening ratings for
 2016-17 had a standard deviation of 30 rating points, against 39 to 58 in every
 later season (held-out settings K 9, H 30, c 0.2; with the published settings, 26.5
-against 34 to 49). Scoring 2016-17 would judge the model on artificially timid ratings.
+against 33 to 49). Scoring 2016-17 would judge the model on artificially timid ratings.
 Measured on the ratings alone, before any held-out result was seen.
 
 **Cost.** One fewer tuning season (five instead of six).

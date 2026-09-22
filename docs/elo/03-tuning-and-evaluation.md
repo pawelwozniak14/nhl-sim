@@ -62,7 +62,7 @@ section 8), so the only way the future could leak into the scores is through the
 starting at 1500, one season is not enough for ratings to reach their natural
 spread: going into 2016-17, opening ratings had a standard deviation of 30 rating
 points, against 39 to 58 in every season after (with the held-out settings, K 9,
-H 30, c 0.2; the published settings give 26.5 against 34 to 49, the same jump).
+H 30, c 0.2; the published settings give 26.5 against 33 to 49, the same jump).
 Scoring 2016-17 would have judged the model on artificially timid ratings, so it
 became a second warm-up season.
 This was measured on the ratings alone, before any held-out result was seen.

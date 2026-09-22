@@ -183,7 +183,7 @@ whole seasons (part 3).
 The pull compounds: with no games in between, a team's distance from 1500 would
 shrink to 0.7, 0.49, 0.34 of its original size after one, two, three summers. In
 practice games refill the spread every season: opening-day ratings have had a
-standard deviation of 34 to 49 points from 2017-18 to 2025-26, and 32 going into
+standard deviation of 33 to 49 points from 2017-18 to 2025-26, and 32 going into
 2026-27 (published settings).
 
 **Relocation: Arizona → Utah.** Ratings follow a club's *lineage*, not its name or
