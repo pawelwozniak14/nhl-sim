@@ -116,8 +116,23 @@ def test_season_scores() -> None:
 
 
 def test_season_scores_need_games_in_every_season() -> None:
-    with pytest.raises(ValueError, match="no played games in season 20242025"):
+    with pytest.raises(ValueError, match=r"no played games in seasons \[20242025\]"):
         season_scores(PRED, [20222023, 20242025], home_rate=0.54)
+
+
+def test_missing_season_is_not_silently_dropped() -> None:
+    # used to score only 2022-23 (audit C4)
+    with pytest.raises(ValueError, match=r"no played games in seasons \[20242025\]"):
+        season_log_loss(PRED, [20222023, 20242025])
+    with pytest.raises(ValueError, match=r"no played games in seasons \[20242025\]"):
+        calibration_table(PRED, [20222023, 20242025])
+
+
+def test_seasons_can_be_a_generator() -> None:
+    # a generator used to be exhausted by the first pass, leaving only the "all" row
+    t = season_scores(PRED, (s for s in [20232024, 20222023]), home_rate=0.54)
+    assert t["season"].to_list() == ["20222023", "20232024", "all"]
+    assert season_log_loss(PRED, iter([20222023])) == pytest.approx(0.7135581778200728)
 
 
 @pytest.mark.parametrize(("seasons", "message"), [([], "no seasons"), ([20192020], "no played")])

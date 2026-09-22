@@ -99,6 +99,29 @@ def test_unknown_key_is_rejected(cfg_dict: dict) -> None:
         SeasonConfig.model_validate(cfg_dict)
 
 
+@pytest.mark.parametrize(
+    ("section", "key", "value"),
+    [
+        ("regular_season", "games_per_team", "84"),  # quoted number
+        ("regular_season", "games_per_team", 84.0),
+        ("regular_season", "start_date", "2026-09-29"),  # quoted date
+        ("points", "win", True),
+        ("playoffs", "series_best_of", "7"),
+        (None, "season_id", "20262027"),
+    ],
+)
+def test_values_are_not_coerced(cfg_dict: dict, section: str | None, key: str, value) -> None:
+    (cfg_dict[section] if section else cfg_dict)[key] = value
+    with pytest.raises(ValidationError, match="should be a valid"):
+        SeasonConfig.model_validate(cfg_dict)
+
+
+def test_values_inside_lists_are_not_coerced(cfg_dict: dict) -> None:
+    _team(cfg_dict, "TOR")["nhl_team_id"] = "10"
+    with pytest.raises(ValidationError, match="should be a valid integer"):
+        SeasonConfig.model_validate(cfg_dict)
+
+
 def test_duplicate_abbrev_is_rejected(cfg_dict: dict) -> None:
     _team(cfg_dict, "BUF")["abbrev"] = "BOS"
     with pytest.raises(ValidationError, match="duplicate team abbrev"):

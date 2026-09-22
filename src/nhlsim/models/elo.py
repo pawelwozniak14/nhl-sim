@@ -69,7 +69,7 @@ class EloError(ValueError):
 class EloParams(BaseModel):
     """Elo settings. Immutable; unknown keys are rejected."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     k: float = Field(gt=0, allow_inf_nan=False)
     home_advantage: float = Field(allow_inf_nan=False)
@@ -82,7 +82,7 @@ class EloParams(BaseModel):
 class EloTuning(BaseModel):
     """Where published settings came from (see ``config/elo.yaml``)."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     warm_up_first: int
     tuning_first: int
@@ -103,7 +103,7 @@ class EloTuning(BaseModel):
 class EloConfig(BaseModel):
     """The Elo settings the published model uses, with their provenance."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     params: EloParams
     tuning: EloTuning
@@ -246,10 +246,15 @@ def frozen_predictions(
 
     Raises:
         EloError: a played game with a malformed result (the same rules as
-            :func:`run_elo`), or a game's team has no opening rating for that season.
+            :func:`run_elo`), more than one opening rating for a team in a season, or a
+            game's team has no opening rating for that season.
     """
     _check_results(games.filter(is_played()))
     starts = season_start.select("season_id", "lineage_id", "rating")
+    dup = starts.filter(pl.struct("season_id", "lineage_id").is_duplicated())
+    if dup.height:
+        pairs = sorted(set(dup.select("season_id", "lineage_id").iter_rows()))[:10]
+        raise EloError(f"more than one opening rating for (season, lineage): {pairs}")
     out = games.sort("start_time_utc", "game_id").select(
         "game_id",
         "season_id",

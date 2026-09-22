@@ -1,8 +1,11 @@
 """Season configuration: teams, alignment, points rules and playoff format.
 
 One YAML file per season lives in ``config/`` (e.g. ``config/season_2026_27.yaml``).
-:func:`load_season_config` reads and validates it. All models are immutable and reject
-unknown keys, so a typo in the YAML fails loudly instead of silently using a default.
+:func:`load_season_config` reads and validates it. All models are immutable, reject
+unknown keys (a typo in the YAML fails loudly instead of silently using a default) and
+never convert types: ``games_per_team: "84"`` or ``win: true`` is an error. The one
+exception is that YAML lists are accepted for the tuple fields (teams, divisions, ...);
+the items inside them are still strict.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
 class RegularSeason(_Strict):
@@ -95,9 +98,9 @@ class SeasonConfig(_Strict):
     schedule_format: ScheduleFormat | None = None
     points: Points
     playoffs: Playoffs
-    conferences: tuple[Conference, ...] = Field(min_length=1)
-    divisions: tuple[Division, ...] = Field(min_length=1)
-    teams: tuple[Team, ...] = Field(min_length=2)
+    conferences: tuple[Conference, ...] = Field(min_length=1, strict=False)
+    divisions: tuple[Division, ...] = Field(min_length=1, strict=False)
+    teams: tuple[Team, ...] = Field(min_length=2, strict=False)
 
     # ---- lookups -------------------------------------------------------------
 
@@ -260,7 +263,7 @@ class NoPointLoss(_Strict):
 
 
 class StandingsExceptions(_Strict):
-    no_point_losses: tuple[NoPointLoss, ...] = ()
+    no_point_losses: tuple[NoPointLoss, ...] = Field(default=(), strict=False)
 
     @model_validator(mode="after")
     def _unique(self) -> StandingsExceptions:

@@ -422,6 +422,15 @@ def test_bad_input_is_rejected(change: dict, message: str) -> None:
         run_elo(_edit(bad, 2015020018, change), params())
 
 
+def test_frozen_predictions_reject_duplicate_opening_ratings() -> None:
+    # used to return one extra row per game of the duplicated team (audit C5)
+    g = games("G1", "G2", "G3")
+    starts = run_elo(g, params()).season_start
+    doubled = pl.concat([starts, starts.filter(pl.col("lineage_id") == BOS)])
+    with pytest.raises(EloError, match=r"more than one opening rating.*\(20152016, 6\)"):
+        frozen_predictions(g, doubled, params())
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [
@@ -450,6 +459,9 @@ def test_frozen_predictions_reject_malformed_played_games(change: dict, message:
         {"margin_weight": -0.5},
         {"margin_weight": math.nan},
         {"regression": 0.3},  # typo: unknown key
+        {"k": "9"},  # values are not coerced
+        {"shootout_as_draw": "yes"},
+        {"shootout_as_draw": 1},
     ],
 )
 def test_params_are_validated(bad: dict) -> None:
@@ -491,6 +503,8 @@ def _with(section: str, **values: object) -> dict:
         (_with("tuning", warm_up_first=20172018), "warm_up_first < tuning_first"),
         (_with("tuning", tuning_last=20162017), "tuning_first <= tuning_last"),
         ({"params": CONFIG["params"]}, "tuning"),
+        (_with("tuning", tuning_first="20172018"), "valid integer"),
+        (_with("params", k="9"), "valid number"),
     ],
 )
 def test_elo_config_is_validated(raw: dict, message: str) -> None:

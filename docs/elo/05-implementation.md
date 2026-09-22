@@ -81,8 +81,9 @@ these columns: `game_id`, `season_id`, `start_time_utc`, `game_state`,
 `shootout_as_draw` (default off), `margin_weight` (λ, default 0) and
 `initial_rating` (default 1500). Like every config model in the project it is
 immutable, rejects unknown keys (a typo fails loudly instead of silently using a
-default), and validates values: K must be positive, c between 0 and 1, λ non-negative,
-nothing infinite or NaN.
+default), never converts types (`k: "9"` or `shootout_as_draw: "yes"` is an error, not
+9 or true), and validates values: K must be positive, c between 0 and 1, λ
+non-negative, nothing infinite or NaN.
 
 **Probabilities.** `home_win_probability(rating_diff)` is the logistic formula of
 part 2, with `SCALE = 400`. `regress(rating, params)` applies the between-season
@@ -141,6 +142,9 @@ the games the baseline may learn from.
   loss, Brier score and both baselines (the tables in part 3, section 7).
 - `calibration_table(predictions, seasons, bins=10)`: predicted against observed
   home win rate by probability bin.
+
+All scoring functions raise if any requested season has no played games, so a
+mistyped season can't silently drop out of a score.
 
 **`nhlsim.ingest.franchises.lineage_of(team_ids, teams)`.** Maps one season's NHL
 team IDs to lineage IDs using the team table. It fails on an unknown team, a team

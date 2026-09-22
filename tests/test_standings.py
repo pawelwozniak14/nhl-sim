@@ -270,8 +270,20 @@ def test_exception_date_must_match(ari: pl.DataFrame) -> None:
         team_records(ari, no_point_losses=[no_point(day="2023-01-01")])
 
 
+@pytest.mark.parametrize(
+    "change",
+    [{"game_id": "2023021166"}, {"game_date": "2024-03-30"}],  # quoted in YAML
+)
+def test_exception_values_are_not_coerced(change: dict) -> None:
+    entry = {"game_id": 2023021166, "game_date": date(2024, 3, 30), "team": "MIN",
+             "rule": "r", "source": "s"}  # fmt: skip
+    StandingsExceptions.model_validate({"no_point_losses": [entry]})  # the good entry loads
+    with pytest.raises(ValidationError, match="should be a valid"):
+        StandingsExceptions.model_validate({"no_point_losses": [entry | change]})
+
+
 def test_exceptions_file_rejects_duplicates_and_bad_ids() -> None:
-    entry = {"game_id": 2023021166, "game_date": "2024-03-30", "team": "MIN",
+    entry = {"game_id": 2023021166, "game_date": date(2024, 3, 30), "team": "MIN",
              "rule": "r", "source": "s"}  # fmt: skip
     with pytest.raises(ValidationError, match="duplicate game ids"):
         StandingsExceptions.model_validate({"no_point_losses": [entry, entry]})

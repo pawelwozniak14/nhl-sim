@@ -143,8 +143,11 @@ def frozen_log_loss(games: pl.DataFrame, params: EloParams, seasons: Iterable[in
 
 
 def season_log_loss(predictions: pl.DataFrame, seasons: Iterable[int]) -> float:
-    """Log loss of ``p_home`` against ``home_won`` over the played games of ``seasons``."""
-    chosen = _played_in(predictions, seasons)
+    """Log loss of ``p_home`` against ``home_won`` over the played games of ``seasons``.
+
+    Raises ``ValueError`` if any season in ``seasons`` has no played games.
+    """
+    _, chosen = _played_in(predictions, seasons)
     return log_loss(chosen["p_home"], chosen["home_won"])
 
 
@@ -159,12 +162,10 @@ def season_scores(
     Columns: season (``"all"`` for the pooled row), games, log_loss, brier,
     home_rate_log_loss (constant ``home_rate``), coin_log_loss (0.5, i.e. ln 2).
     """
-    chosen = _played_in(predictions, seasons)
-    groups = [(str(s), chosen.filter(pl.col("season_id") == s)) for s in sorted(set(seasons))]
+    wanted, chosen = _played_in(predictions, seasons)
+    groups = [(str(s), chosen.filter(pl.col("season_id") == s)) for s in wanted]
     rows = []
     for label, df in [*groups, ("all", chosen)]:
-        if df.height == 0:
-            raise ValueError(f"no played games in season {label}")
         constant = pl.Series([home_rate] * df.height, dtype=pl.Float64)
         rows.append(
             {
@@ -189,7 +190,7 @@ def calibration_table(
     """
     if bins < 1:
         raise ValueError("bins must be at least 1")
-    chosen = _played_in(predictions, seasons)
+    _, chosen = _played_in(predictions, seasons)
     lower = (pl.col("p_home") * bins).floor().clip(upper_bound=bins - 1) / bins
     return (
         chosen.group_by(bin=lower)
@@ -205,16 +206,22 @@ def calibration_table(
 # ---- helpers ------------------------------------------------------------------------------
 
 
-def _played_in(predictions: pl.DataFrame, seasons: Iterable[int]) -> pl.DataFrame:
+def _played_in(predictions: pl.DataFrame, seasons: Iterable[int]) -> tuple[list[int], pl.DataFrame]:
+    """The requested seasons (sorted, read once) and their played games.
+
+    Raises if no seasons are given or any requested season has no played games, so a
+    typo in a season list can't silently drop that season from a score.
+    """
     wanted = sorted(set(seasons))
     if not wanted:
         raise ValueError("no seasons given")
     chosen = predictions.filter(
         pl.col("season_id").is_in(wanted) & pl.col("home_won").is_not_null()
     )
-    if chosen.height == 0:
-        raise ValueError(f"no played games in seasons {wanted}")
-    return chosen
+    missing = sorted(set(wanted) - set(chosen["season_id"].unique().to_list()))
+    if missing:
+        raise ValueError(f"no played games in seasons {missing}")
+    return wanted, chosen
 
 
 def _score_all(candidates: list[EloParams], score: Score) -> pl.DataFrame:
