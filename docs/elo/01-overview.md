@@ -73,7 +73,7 @@ results and the calibration tables.
 
 One season stands out: in **2025-26** the preseason ratings predicted worse than a
 coin flip (0.7036). The league reshuffled that year: opening ratings correlated
-only about 0.25 with the final standings, against 0.6 to 0.8 in the three seasons before,
+only about 0.25 with the final standings, against about 0.6 to 0.8 in the three seasons before,
 and teams finished closer together than in any other season in the data. No
 setting fixes a season like that; the season simulator must instead allow for it
 through its uncertainty about team strength (see the roadmap, part 6).

@@ -38,7 +38,7 @@ SCHEDULE_SCHEMA: dict[str, pl.DataType] = {
     "game_schedule_state": pl.String(),  # e.g. OK
     "home_score": pl.Int64(),  # null until the game is finished
     "away_score": pl.Int64(),
-    "last_period_type": pl.String(),  # REG / OT / SO once finished (only REG seen so far)
+    "last_period_type": pl.String(),  # REG / OT / SO once finished
 }
 
 # Game states that mean "played, result final". Finished regular-season games settle to

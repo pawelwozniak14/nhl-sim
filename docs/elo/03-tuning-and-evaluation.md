@@ -61,8 +61,10 @@ section 8), so the only way the future could leak into the scores is through the
 **Why two warm-up seasons.** The first version used one. But with every team
 starting at 1500, one season is not enough for ratings to reach their natural
 spread: going into 2016-17, opening ratings had a standard deviation of 30 rating
-points, against 39 to 58 in every season after. Scoring 2016-17 would have judged
-the model on artificially timid ratings, so it became a second warm-up season.
+points, against 39 to 58 in every season after (with the held-out settings, K 9,
+H 30, c 0.2; the published settings give 26.5 against 34 to 49, the same jump).
+Scoring 2016-17 would have judged the model on artificially timid ratings, so it
+became a second warm-up season.
 This was measured on the ratings alone, before any held-out result was seen.
 
 ## 4. Two objectives for one model
@@ -80,9 +82,9 @@ Why split them? The daily score barely depends on c: the pull only affects the
 first few weeks of each season, before game results wash it out, so the daily score
 would choose c from a small part of the data and for the wrong purpose. The frozen
 score depends on c for every game of the season, but it is informationally thin:
-all 84 games of a team share one opening rating, so the tuning seasons offer about
-156 team-seasons of information rather than 5,804 independent games. That is enough
-to pin down one number, not three.
+all of a team's games in a season share one opening rating, so the tuning seasons
+offer about 156 team-seasons of information rather than 5,804 independent games.
+That is enough to pin down one number, not three.
 
 Using one c for both jobs means the daily model on opening day is identical to the
 frozen projection. Whether this costs the daily model anything was measured, not
@@ -196,11 +198,15 @@ with fewer than 25 games omitted):
 | average prediction | 0.272 | 0.361 | 0.455 | 0.549 | 0.645 | 0.735 |
 | home win rate | 0.309 | 0.357 | 0.484 | 0.535 | 0.625 | 0.714 |
 
-On the tuning seasons, predictions and outcomes agree within about one percentage
-point wherever there are enough games (the 27-game bin is noise). On the held-out
-seasons, predictions are 2 to 3 points too extreme in the middle bins: games
-predicted at 64.5% were won 62.5% of the time. The next section traces this to one
-season.
+On the tuning seasons, predictions and outcomes agree within about one standard
+error wherever there are enough games: the 0.3–0.4 bin is 2.2 percentage points off
+(one standard error for 478 games), the others about one point or less. The 27-game
+bin is too small to judge. On the held-out seasons, predictions are 1.3 to 2.9
+points too extreme in the middle bins (0.4 to 0.7): games predicted at 64.5% were
+won 62.5% of the time. Most of that comes from one season. Without 2025-26, the
+middle bins are off by 0.2 to 1.8 points; 2025-26 alone is off by 4.5 to 6.0
+points (same settings and bins). The next section shows what was unusual about
+that season.
 
 ## 8. The 2025-26 season
 

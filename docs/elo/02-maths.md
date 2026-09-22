@@ -116,7 +116,8 @@ rate.
 
 The first three games below are real 2015-16 games; to keep the arithmetic short,
 we pretend they were the only games played (in the real run, the teams played
-others in between). All teams start at 1500.
+others in between). All teams start at 1500. Ratings are shown to three decimals,
+but each step uses the unrounded values.
 
 **Game 1, 7 Oct 2015: Montréal 3 at Toronto 1 (regulation).**
 
@@ -147,7 +148,7 @@ so Boston was a slightly smaller favourite than Toronto had been.
 **Game 3, 23 Nov 2015: Boston 4 at Toronto 3 (shootout).**
 
 ```math
-d = 1495.145 + 27.5 - 1495.207 = 27.437, \qquad P = 0.5394, \qquad S = 0
+d = 1495.1446 + 27.5 - 1495.2071 = 27.4374, \qquad P = 0.5394, \qquad S = 0
 ```
 
 ```math
@@ -170,7 +171,7 @@ R_{\text{new}} = 1500 + (1 - c)\,(R_{\text{old}} - 1500), \qquad c = 0.3
 
 Each summer removes 30% of every team's distance from average: Colorado ended
 2025-26 at 1587.0 and opens 2026-27 at $`1500 + 0.7 \times 87.0 = 1560.9`$. Chicago,
-at 1395.9, opens at 1427.2.
+at 1395.94, opens at $`1500 + 0.7 \times (-104.06) = 1427.16`$.
 
 Why pull at all? Because part of every team's record is luck, and rosters change
 over the summer. Last season's final rating is the best single guide to next
@@ -182,7 +183,8 @@ whole seasons (part 3).
 The pull compounds: with no games in between, a team's distance from 1500 would
 shrink to 0.7, 0.49, 0.34 of its original size after one, two, three summers. In
 practice games refill the spread every season: opening-day ratings have had a
-standard deviation of 33 to 49 points since 2017-18.
+standard deviation of 34 to 49 points from 2017-18 to 2025-26, and 32 going into
+2026-27 (published settings).
 
 **Relocation: Arizona → Utah.** Ratings follow a club's *lineage*, not its name or
 team ID, so Utah continues Arizona's rating. Arizona finished 2023-24 at 1450.25

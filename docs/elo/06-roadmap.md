@@ -15,9 +15,11 @@ the first tiebreaker, and a loss in overtime or a shootout still earns a point. 
 plan is a small model on top of the Elo rating difference, with three ordered
 outcomes: away regulation win, game goes past regulation, home regulation win. This
 kind of model, an *ordered logit*, has only three parameters here, and because the
-outcomes are ordered, a bigger mismatch automatically means fewer overtimes.
-Whether that is true in real games is one of the things the fit will measure rather
-than assume. Games that go past regulation then split into overtime and shootout
+outcomes are ordered, a bigger mismatch automatically means fewer overtimes: with
+one slope, the model imposes that pattern, so the fit can't test it. It will be
+checked separately, by comparing the model's overtime rate with the observed rate
+in bins of rating difference; if they disagree, the middle outcome gets its own
+slope. Games that go past regulation then split into overtime and shootout
 (about two-thirds end in overtime); the overtime winner is tilted by team strength,
 and the shootout is close to a coin flip, as the data showed (part 4, decision 6).
 It will be fitted on the tuning seasons and scored on the held-out seasons with the
@@ -161,7 +163,7 @@ for an experiment with the walk-forward backtest:
 
 | Idea | Why it might help | Why it was not done |
 |---|---|---|
-| Treat games that go to overtime as draws | Overtime winners depend only weakly on strength | Standings count wins; untested |
+| Treat games that go to overtime as draws | An overtime result may say less about strength than a regulation result (not measured; the overtime winner is still tilted by strength, part 4, decision 6) | Standings count wins; untested |
 | Variable K, e.g. larger early in the season | Ratings are most out of date in October | The between-season pull covers the summer; one K is simpler |
 | Start expansion teams below average | New teams usually start weak | Two cases in the data, pointing opposite ways |
 | Margin of victory without empty-net goals | Empty-net goals inflate margins | Needs goal-by-goal data; margin of victory already failed on held-out seasons |
