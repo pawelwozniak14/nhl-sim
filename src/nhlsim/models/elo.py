@@ -10,6 +10,12 @@ sum of ratings never changes. ``result`` is 1 for a home win and 0 for a home lo
 way the game ended); with ``shootout_as_draw`` a shootout counts as 0.5, because shootout
 winners are unrelated to team strength (checked on 2015-16 .. 2025-26).
 
+Margin of victory (optional): the update is multiplied by
+``1 + margin_weight * ln(goal margin)``. One-goal games, which include every overtime and
+shootout game, get multiplier 1; ``margin_weight = 0`` is plain Elo. Margins come from the
+final score, so empty-net goals are included; tuning ``margin_weight`` absorbs that on
+average.
+
 Between seasons every rating is pulled toward the initial rating:
 ``r = initial + (1 - season_regression) * (r - initial)``. A team's first game gives it
 the initial rating (expansion teams: Vegas 2017-18, Seattle 2021-22). Because new teams
@@ -24,6 +30,7 @@ computed from ratings before that game's update.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -65,6 +72,7 @@ class EloParams(BaseModel):
     home_advantage: float = Field(allow_inf_nan=False)
     season_regression: float = Field(ge=0, le=1)
     shootout_as_draw: bool = False
+    margin_weight: float = Field(default=0.0, ge=0, allow_inf_nan=False)
     initial_rating: float = Field(default=1500.0, allow_inf_nan=False)
 
 
@@ -143,7 +151,8 @@ def run_elo(games: pl.DataFrame, params: EloParams) -> EloRun:
         p_home = home_win_probability(r_home + params.home_advantage - r_away)
         home_won = hs > as_
         result = 0.5 if period == "SO" and params.shootout_as_draw else float(home_won)
-        delta = params.k * (result - p_home)
+        multiplier = 1.0 + params.margin_weight * math.log(abs(hs - as_))
+        delta = params.k * multiplier * (result - p_home)
         ratings[home] = r_home + delta
         ratings[away] = r_away - delta
         rows.append((gid, season, home, away, r_home, r_away, p_home, home_won))

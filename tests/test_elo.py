@@ -41,6 +41,10 @@ _REAL = {
            False, "US/Eastern", 2, 4, "REG", BOS, MTL),
     "G3": (2015020312, 20152016, "2015-11-23", "2015-11-24 00:30", 10, "TOR", 6, "BOS",
            False, "America/Toronto", 3, 4, "SO", TOR, BOS),
+    "OT_GAME": (2015020744, 20152016, "2016-02-02", "2016-02-03 00:00", 6, "BOS", 10, "TOR",
+                False, "US/Eastern", 3, 4, "OT", BOS, TOR),
+    "ONE_GOAL": (2015020662, 20152016, "2016-01-16", "2016-01-17 00:00", 6, "BOS", 10, "TOR",
+                 False, "US/Eastern", 3, 2, "REG", BOS, TOR),
     "WINTER_CLASSIC": (2015020565, 20152016, "2016-01-01", "2016-01-01 18:00", 6, "BOS", 8,
                        "MTL", True, "America/New_York", 1, 5, "REG", BOS, MTL),
     "NEXT_SEASON": (2016020017, 20162017, "2016-10-15", "2016-10-15 23:00", 10, "TOR", 6,
@@ -191,6 +195,43 @@ def test_unplayed_games_are_ignored() -> None:
     assert final(run, TOR) == pytest.approx(1490.0)
 
 
+# ---- margin of victory ------------------------------------------------------------------
+
+
+def test_margin_of_victory() -> None:
+    # TOR 4 BOS 1 (REG): m = 1 + 0.5 * ln 3 = 1.549306, change 20 * 1.549306 * 0.5
+    run = run_elo(games("NEXT_SEASON"), params(margin_weight=0.5))
+    assert final(run, TOR) == pytest.approx(1515.4930614433405)
+    assert final(run, BOS) == pytest.approx(1484.5069385566595)
+
+
+def test_margin_of_victory_for_an_away_win() -> None:
+    # MTL 3 @ TOR 1: margin 2, m = 1 + ln 2 with weight 1
+    run = run_elo(games("G1"), params(margin_weight=1.0))
+    assert final(run, MTL) == pytest.approx(1500 + 10 * (1 + math.log(2)))
+
+
+def test_zero_margin_weight_is_plain_elo() -> None:
+    names = ["G1", "G2", "G3", "NEXT_SEASON", "OT_GAME", "WINTER_CLASSIC"]
+    plain = run_elo(games(*names), params())
+    zero = run_elo(games(*names), params(margin_weight=0.0))
+    assert plain.games.equals(zero.games)
+    assert plain.final.equals(zero.final)
+
+
+@pytest.mark.parametrize("name", ["G3", "OT_GAME", "ONE_GOAL"])
+def test_one_goal_games_ignore_the_margin_weight(name: str) -> None:
+    plain = run_elo(games(name), params())
+    weighted = run_elo(games(name), params(margin_weight=2.0))
+    assert plain.final.equals(weighted.final)
+
+
+def test_margin_of_victory_keeps_ratings_zero_sum() -> None:
+    names = ["G1", "G2", "G3", "WINTER_CLASSIC", "NEXT_SEASON", "VGK_FIRST"]
+    run = run_elo(games(*names), params(margin_weight=0.7, home_advantage=35.0))
+    assert run.final["rating"].mean() == pytest.approx(1500.0)
+
+
 # ---- seasons ------------------------------------------------------------------------------
 
 
@@ -310,6 +351,8 @@ def test_bad_input_is_rejected(change: dict, message: str) -> None:
         {"home_advantage": math.nan},
         {"season_regression": 1.5},
         {"season_regression": -0.1},
+        {"margin_weight": -0.5},
+        {"margin_weight": math.nan},
         {"regression": 0.3},  # typo: unknown key
     ],
 )
