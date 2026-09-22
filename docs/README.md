@@ -19,7 +19,5 @@ The first model in the project and the baseline every later model must beat.
    including what was tried and rejected.
 5. [Implementation](elo/05-implementation.md): where each piece lives in the code,
    and how to reproduce every number.
-
-Planned:
-
-6. Roadmap and limitations: what is planned next and what the model cannot capture.
+6. [Roadmap and limitations](elo/06-roadmap.md): what is planned next, the ideas not
+   yet tested, and what the model cannot capture.
