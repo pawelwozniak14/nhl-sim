@@ -41,34 +41,44 @@ class ResultsError(ValueError):
 
 def find_result_problems(games: pl.DataFrame) -> list[str]:
     """Check that every game has a final, well-formed result; return all problems found."""
-    problems: list[str] = []
+    unplayed = games.filter(~is_played())
+    problems = [_describe("not played", unplayed)] if unplayed.height else []
+    return problems + played_result_problems(games.filter(is_played()))
 
-    def report(what: str, bad: pl.DataFrame) -> None:
-        if bad.height:
-            ids = bad.sort("game_id")["game_id"].to_list()
-            shown = ", ".join(map(str, ids[:10])) + (
-                f" (+{len(ids) - 10} more)" if len(ids) > 10 else ""
-            )
-            problems.append(f"{bad.height} games {what}: {shown}")
 
-    report("not played", games.filter(~is_played()))
-    played = games.filter(is_played())
-    report(
-        "without both scores",
-        played.filter(pl.col("home_score").is_null() | pl.col("away_score").is_null()),
-    )
+def played_result_problems(played: pl.DataFrame) -> list[str]:
+    """Problems with the results of already-played games; empty if all are well formed.
+
+    The one set of result rules shared by everything that reads played games
+    (:func:`find_result_problems`, ``team_records``, ``run_elo``, ``frozen_predictions``):
+    both scores present and different, last period type in :data:`PERIOD_TYPES`, and
+    ``OT``/``SO`` games decided by exactly one goal. The caller filters to played games
+    first (with :func:`~nhlsim.ingest.schedule.is_played`) and raises its own error.
+    """
     scored = played.drop_nulls(["home_score", "away_score"])
     margin = (pl.col("home_score") - pl.col("away_score")).abs()
-    report("tied", scored.filter(margin == 0))
-    report(
-        "with an unknown last period type",
-        played.filter(~pl.col("last_period_type").is_in(PERIOD_TYPES).fill_null(False)),
-    )
-    report(
-        "decided in OT/SO by more than one goal",
-        scored.filter(pl.col("last_period_type").is_in(["OT", "SO"]) & (margin != 1)),
-    )
-    return problems
+    checks = [
+        (
+            "without both scores",
+            played.filter(pl.col("home_score").is_null() | pl.col("away_score").is_null()),
+        ),
+        ("tied", scored.filter(margin == 0)),
+        (
+            "with an unknown last period type",
+            played.filter(~pl.col("last_period_type").is_in(PERIOD_TYPES).fill_null(False)),
+        ),
+        (
+            "decided in OT/SO by more than one goal",
+            scored.filter(pl.col("last_period_type").is_in(["OT", "SO"]) & (margin != 1)),
+        ),
+    ]
+    return [_describe(what, bad) for what, bad in checks if bad.height]
+
+
+def _describe(what: str, bad: pl.DataFrame) -> str:
+    ids = bad.sort("game_id")["game_id"].to_list()
+    shown = ", ".join(map(str, ids[:10])) + (f" (+{len(ids) - 10} more)" if len(ids) > 10 else "")
+    return f"{bad.height} games {what}: {shown}"
 
 
 def add_lineage(games: pl.DataFrame, teams: pl.DataFrame) -> pl.DataFrame:

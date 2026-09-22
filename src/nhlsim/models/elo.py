@@ -39,6 +39,7 @@ import polars as pl
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from nhlsim.ingest.results import played_result_problems
 from nhlsim.ingest.schedule import is_played
 
 SCALE = 400.0
@@ -160,7 +161,8 @@ def run_elo(games: pl.DataFrame, params: EloParams) -> EloRun:
 
     Raises:
         EloError: duplicate game IDs, a team playing itself, a played game without both
-            scores, a tie, an unknown last period type, or seasons out of time order.
+            scores, a tie, an unknown last period type, an OT/SO game not decided by one
+            goal, or seasons out of time order.
     """
     played = games.filter(is_played()).sort("start_time_utc", "game_id")
     _check(played)
@@ -243,8 +245,10 @@ def frozen_predictions(
     ``home_won`` null. Rows follow start-time order (ties broken by game ID).
 
     Raises:
-        EloError: a game's team has no opening rating for that season.
+        EloError: a played game with a malformed result (the same rules as
+            :func:`run_elo`), or a game's team has no opening rating for that season.
     """
+    _check_results(games.filter(is_played()))
     starts = season_start.select("season_id", "lineage_id", "rating")
     out = games.sort("start_time_utc", "game_id").select(
         "game_id",
@@ -278,17 +282,18 @@ def _check(played: pl.DataFrame) -> None:
         "games without lineage ids": pl.col("home_lineage_id").is_null()
         | pl.col("away_lineage_id").is_null(),
         "team playing itself": pl.col("home_lineage_id") == pl.col("away_lineage_id"),
-        "played games without both scores": pl.col("home_score").is_null()
-        | pl.col("away_score").is_null(),
-        "tied played games": pl.col("home_score") == pl.col("away_score"),
-        "unknown last period type": ~pl.col("last_period_type")
-        .is_in(["REG", "OT", "SO"])
-        .fill_null(False),
     }
     for what, expr in checks.items():
         bad = played.filter(expr.fill_null(False))
         if bad.height:
             raise EloError(f"{what}: {ids(bad)}")
+    _check_results(played)
     seasons = played["season_id"]
     if played.height and not (seasons.diff().drop_nulls() >= 0).all():
         raise EloError("seasons are not in time order")
+
+
+def _check_results(played: pl.DataFrame) -> None:
+    problems = played_result_problems(played)
+    if problems:
+        raise EloError("; ".join(problems))

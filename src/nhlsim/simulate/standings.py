@@ -23,6 +23,7 @@ from collections.abc import Iterable
 import polars as pl
 
 from nhlsim.config import NoPointLoss
+from nhlsim.ingest.results import played_result_problems
 from nhlsim.ingest.schedule import is_played
 
 RECORD_COLUMNS = ("gp", "w", "l", "otl", "points", "rw", "row", "sow", "sol", "gf", "ga")
@@ -52,8 +53,17 @@ def team_records(
     ``no_point_losses`` for seasons present in ``games`` must each match a played game
     that the listed team lost in overtime on the listed date; exceptions for other
     seasons are ignored.
+
+    Raises:
+        StandingsError: a played game without both scores, a tie, an unknown last
+            period type, an OT/SO game not decided by one goal (the rules of
+            :func:`~nhlsim.ingest.results.played_result_problems`), or an exception that
+            doesn't match its game.
     """
     played = games.filter(is_played())
+    problems = played_result_problems(played)
+    if problems:
+        raise StandingsError("; ".join(problems))
     sides = []
     for us, them in (("home", "away"), ("away", "home")):
         sides.append(

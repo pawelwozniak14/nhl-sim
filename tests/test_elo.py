@@ -403,7 +403,8 @@ def _edit(df: pl.DataFrame, game_id: int, values: dict[str, pl.Expr]) -> pl.Data
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ({"away_score": 2}, "tied played games: 2015020018"),
+        ({"away_score": 2}, "games tied: 2015020018"),
+        ({"last_period_type": "OT"}, "decided in OT/SO by more than one goal: 2015020018"),
         ({"home_score": None}, "without both scores: 2015020018"),
         ({"last_period_type": "SOX"}, "unknown last period type: 2015020018"),
         ({"last_period_type": None}, "unknown last period type: 2015020018"),
@@ -419,6 +420,23 @@ def test_bad_input_is_rejected(change: dict, message: str) -> None:
     change = {c: pl.lit(v, dtype=bad.schema[c]) for c, v in change.items()}
     with pytest.raises(EloError, match=message):
         run_elo(_edit(bad, 2015020018, change), params())
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"away_score": 2}, "games tied: 2015020018"),
+        ({"home_score": None}, "without both scores: 2015020018"),
+        ({"last_period_type": "SOX"}, "unknown last period type: 2015020018"),
+        ({"last_period_type": "OT"}, "decided in OT/SO by more than one goal: 2015020018"),
+    ],
+)
+def test_frozen_predictions_reject_malformed_played_games(change: dict, message: str) -> None:
+    good = games("G1", "G2", "G3")
+    starts = run_elo(good, params()).season_start
+    change = {c: pl.lit(v, dtype=good.schema[c]) for c, v in change.items()}
+    with pytest.raises(EloError, match=message):
+        frozen_predictions(_edit(good, 2015020018, change), starts, params())
 
 
 @pytest.mark.parametrize(

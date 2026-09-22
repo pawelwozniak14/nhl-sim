@@ -64,6 +64,38 @@ def test_arizona_record(ari: pl.DataFrame) -> None:
     }  # fmt: skip
 
 
+def _edit(df: pl.DataFrame, game_id: int, **values: object) -> pl.DataFrame:
+    """Set columns of one game, keeping each column's dtype (so None stays typed)."""
+    hit = pl.col("game_id") == game_id
+    return df.with_columns(
+        pl.when(hit).then(pl.lit(v, dtype=df.schema[c])).otherwise(pl.col(c)).alias(c)
+        for c, v in values.items()
+    )
+
+
+@pytest.mark.parametrize(
+    ("game_id", "change", "message"),
+    [
+        # each of these used to pass silently with a wrong record (audit C1)
+        (2023020144, {"last_period_type": None}, "unknown last period type: 2023020144"),
+        (2023020144, {"last_period_type": "OVT"}, "unknown last period type: 2023020144"),
+        (2023020017, {"home_score": None}, "without both scores: 2023020017"),
+        (2023020017, {"home_score": 4}, "games tied: 2023020017"),
+        (2023020144, {"home_score": 5}, "decided in OT/SO by more than one goal: 2023020144"),
+    ],
+)
+def test_malformed_played_game_is_rejected(
+    ari: pl.DataFrame, game_id: int, change: dict, message: str
+) -> None:
+    with pytest.raises(StandingsError, match=message):
+        team_records(_edit(ari, game_id, **change))
+
+
+def test_unplayed_game_with_a_tied_score_is_ignored(ari: pl.DataFrame) -> None:
+    live = _edit(ari, 2023020037, game_state="LIVE", home_score=1, away_score=1)
+    assert record(team_records(live), "ARI")["gp"] == 2
+
+
 def test_opponent_records(ari: pl.DataFrame) -> None:
     records = team_records(ari)
     assert record(records, "NJD") == {  # lost in a shootout: one point

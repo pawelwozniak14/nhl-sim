@@ -68,8 +68,12 @@ these columns: `game_id`, `season_id`, `start_time_utc`, `game_state`,
   (part 4, decision 10).
 - Before anything runs, the input is checked, and any of these raises `EloError`:
   duplicate game IDs, missing lineage IDs, a team playing itself, a played game
-  without both scores, a tie, an unknown last period type, or seasons out of time
-  order.
+  without both scores, a tie, an unknown last period type, an overtime or shootout
+  game not decided by exactly one goal, or seasons out of time order. The result
+  rules (scores, ties, period type, one-goal margin) are one shared function,
+  `played_result_problems` in `nhlsim.ingest.results`, also used by the historical
+  results check and by `team_records`, so every reader of played games applies the
+  same rules.
 
 ## 4. `nhlsim.models.elo`
 
@@ -100,7 +104,8 @@ season that isn't after every season in `final`.
 **`frozen_predictions(games, season_start, params)`.** Predicts every game from its
 season's opening ratings, never updated (part 2, section 9). Unplayed games are
 included, with `home_won` null: that is what the preseason freeze needs. Raises
-`EloError` if a team has no opening rating for that season.
+`EloError` if a played game has a malformed result (the same rules as `run_elo`) or
+a team has no opening rating for that season.
 
 **Config.** `load_elo_config(path) -> EloConfig` reads `config/elo.yaml`: an
 `EloParams` plus an `EloTuning` block recording the warm-up start, the tuning
