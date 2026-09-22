@@ -92,6 +92,23 @@ The main risk is defining a roster the same way in history (from who actually
 played) and today (from a preseason roster listing, which includes injured
 players).
 
+**Game statistics in the updates** (task 2.7). Plain Elo learns only from who won.
+A game's statistics, especially expected goals (xG), which values every shot by its
+chance of becoming a goal, say much more about how the two teams actually played,
+and are less noisy than the score. The idea is to let them shape the update, for
+example by replacing the result $`S`$ (1 or 0) with a blend of the result and the
+game's xG share, or by scaling K by how dominant the performance was.
+
+The main pitfall is **score effects**: a team that leads tends to sit back and
+defend, and the trailing team takes more shots, so a leading team's raw xG share
+understates how well it played. Using raw xG shares would penalise teams for
+protecting leads. Two standard remedies are xG adjusted for score and venue, and
+counting only five-on-five play in close-score situations; empty-net time must be
+excluded either way. Which statistics are available per game (MoneyPuck game-level
+data, or shot data from the NHL's play-by-play) is still to be checked. Like every
+variant, it must beat plain Elo on the walk-forward backtest, and it will be tested
+in combination with the other variants, not alone (section 3).
+
 **Hot simulations** (task 2.6). An alternative to σ: inside each simulated season,
 update ratings after every simulated game, so a team that starts well becomes
 stronger in the simulation. Both versions, and their combination, will be compared
@@ -110,10 +127,37 @@ season, with honest uncertainty. It can also give each team its own home advanta
 shrunk toward the league average; on current evidence the shrinkage should be almost
 total (part 4, decision 4).
 
-## 3. Untested ideas
+## 3. How future experiments will be run
 
-Choices made on reasoning alone (part 4), each a candidate for an experiment with
-the walk-forward backtest:
+**Factors are tested in combination, not one at a time.** A setting that doesn't
+help on its own may help together with another, and the reverse: two settings that
+each help alone can cancel out together. Changing one factor at a time can
+therefore miss the best combination. Wherever the number of combinations allows,
+experiments will be **full factorial**: every combination of the candidate
+settings is tried, each with its own best K and H.
+
+The first experiment already worked this way for its two factors: shootouts as
+draws and the margin-of-victory weight were tried in all 16 combinations (part 3,
+section 9). Only the between-season pull c was searched separately, by design
+(part 3, section 4). Future candidates, including game statistics, variable K and
+the ideas in the next section, will be crossed with each other and with the
+existing variants.
+
+**The cost of trying many combinations.** The more combinations are tried, the more
+likely it is that the best-looking one won partly by luck, and luck doesn't repeat
+on new data. So a large search is only half the experiment: the winning
+combination must then be confirmed on seasons the search never saw, using the
+walk-forward backtest. When the number of combinations grows too large, a
+*fractional factorial* design (a planned subset that still separates the main
+effects and their pairwise interactions) keeps the search affordable.
+
+For the MVP, the model stays plain Elo; these experiments come afterwards, one
+iteration at a time.
+
+## 4. Untested ideas
+
+Choices made on reasoning alone (part 4), and ideas not yet built, each a candidate
+for an experiment with the walk-forward backtest:
 
 | Idea | Why it might help | Why it was not done |
 |---|---|---|
@@ -121,8 +165,11 @@ the walk-forward backtest:
 | Variable K, e.g. larger early in the season | Ratings are most out of date in October | The between-season pull covers the summer; one K is simpler |
 | Start expansion teams below average | New teams usually start weak | Two cases in the data, pointing opposite ways |
 | Margin of victory without empty-net goals | Empty-net goals inflate margins | Needs goal-by-goal data; margin of victory already failed on held-out seasons |
+| Game statistics (xG) in the updates | Less noisy than the score; reflects how teams played | Needs per-game data and score-effect adjustment (section 2) |
 
-## 4. Limitations
+Each will be tested in combination with the others (section 3), not only alone.
+
+## 5. Limitations
 
 What the Elo model cannot capture, and what that means for its predictions:
 
