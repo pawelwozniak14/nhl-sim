@@ -13,6 +13,7 @@ G3 2015020312  BOS 4 @ TOR 3 (SO)   p_home = 1 / (1 + 10**(0.287744/400)) = 0.49
 
 import math
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -22,11 +23,13 @@ from nhlsim.ingest.results import RESULTS_SCHEMA
 from nhlsim.models.elo import (
     GAME_PREDICTIONS_SCHEMA,
     RATINGS_SCHEMA,
+    EloConfig,
     EloError,
     EloParams,
     EloRun,
     frozen_predictions,
     home_win_probability,
+    load_elo_config,
     opening_ratings,
     run_elo,
 )
@@ -434,3 +437,51 @@ def test_bad_input_is_rejected(change: dict, message: str) -> None:
 def test_params_are_validated(bad: dict) -> None:
     with pytest.raises(ValidationError):
         params(**bad)
+
+
+# ---- config/elo.yaml ----------------------------------------------------------------------
+
+REPO = Path(__file__).resolve().parents[1]
+CONFIG = {
+    "params": {"k": 9.0, "home_advantage": 27.5, "season_regression": 0.3},
+    "tuning": {"warm_up_first": 20152016, "tuning_first": 20172018, "tuning_last": 20252026,
+               "source": "test"},
+}  # fmt: skip
+
+
+def test_real_elo_config_loads() -> None:
+    cfg = load_elo_config(REPO / "config" / "elo.yaml")
+    assert cfg.params == EloParams(k=9.0, home_advantage=27.5, season_regression=0.3)
+    assert not cfg.params.shootout_as_draw and cfg.params.margin_weight == 0.0
+    assert (cfg.tuning.warm_up_first, cfg.tuning.tuning_first, cfg.tuning.tuning_last) == (
+        20152016, 20172018, 20252026
+    )  # fmt: skip
+
+
+def _with(section: str, **values: object) -> dict:
+    return CONFIG | {section: CONFIG[section] | values}
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        (CONFIG | {"extra": 1}, "extra"),
+        (_with("params", regression=0.3), "regression"),
+        (_with("params", k=0.0), "greater than 0"),
+        (_with("tuning", source=""), "at least 1 character"),
+        (_with("tuning", tuning_first=20172019), "must look like 20172018"),
+        (_with("tuning", warm_up_first=20172018), "warm_up_first < tuning_first"),
+        (_with("tuning", tuning_last=20162017), "tuning_first <= tuning_last"),
+        ({"params": CONFIG["params"]}, "tuning"),
+    ],
+)
+def test_elo_config_is_validated(raw: dict, message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        EloConfig.model_validate(raw)
+
+
+def test_elo_config_must_be_a_mapping(tmp_path: Path) -> None:
+    path = tmp_path / "elo.yaml"
+    path.write_text("- k: 9\n", encoding="utf-8")
+    with pytest.raises(TypeError, match="expected a YAML mapping"):
+        load_elo_config(path)

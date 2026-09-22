@@ -33,9 +33,11 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 import polars as pl
-from pydantic import BaseModel, ConfigDict, Field
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nhlsim.ingest.schedule import is_played
 
@@ -74,6 +76,50 @@ class EloParams(BaseModel):
     shootout_as_draw: bool = False
     margin_weight: float = Field(default=0.0, ge=0, allow_inf_nan=False)
     initial_rating: float = Field(default=1500.0, allow_inf_nan=False)
+
+
+class EloTuning(BaseModel):
+    """Where published settings came from (see ``config/elo.yaml``)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    warm_up_first: int
+    tuning_first: int
+    tuning_last: int
+    source: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _seasons_in_order(self) -> EloTuning:
+        for name in ("warm_up_first", "tuning_first", "tuning_last"):
+            start, end = divmod(getattr(self, name), 10_000)
+            if end != start + 1:
+                raise ValueError(f"{name} must look like 20172018, got {getattr(self, name)}")
+        if not self.warm_up_first < self.tuning_first <= self.tuning_last:
+            raise ValueError("need warm_up_first < tuning_first <= tuning_last")
+        return self
+
+
+class EloConfig(BaseModel):
+    """The Elo settings the published model uses, with their provenance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    params: EloParams
+    tuning: EloTuning
+
+
+def load_elo_config(path: Path | str) -> EloConfig:
+    """Read and validate ``config/elo.yaml``.
+
+    Raises:
+        TypeError: if the file does not contain a YAML mapping.
+        pydantic.ValidationError: if the content is invalid.
+    """
+    with Path(path).open(encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    if not isinstance(raw, dict):
+        raise TypeError(f"{path}: expected a YAML mapping, got {type(raw).__name__}")
+    return EloConfig.model_validate(raw)
 
 
 @dataclass(frozen=True)
