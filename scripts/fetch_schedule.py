@@ -30,6 +30,7 @@ from nhlsim.ingest.schedule import (
     fetch_season_schedule,
     save_schedule,
 )
+from nhlsim.io import use_utf8_output
 
 REPO = Path(__file__).resolve().parents[1]
 log = logging.getLogger("fetch_schedule")
@@ -48,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         help="reuse saved responses instead of downloading (the schedule may be stale)",
     )
     args = parser.parse_args(argv)
+    use_utf8_output()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = load_season_config(args.config)
@@ -92,7 +94,11 @@ def _print_summary(games: pl.DataFrame, out: Path) -> None:
             f"  {r['game_id']}  {r['game_date']}  {r['away_abbrev']} @ {r['home_abbrev']}"
             f"  ({r['venue_timezone']})"
         )
-    zones = games.group_by("venue_timezone").len().sort("len", descending=True)
+    zones = (
+        games.group_by("venue_timezone")
+        .len()
+        .sort(["len", "venue_timezone"], descending=[True, False])  # stable order for ties
+    )
     print("Venue time zones:", ", ".join(f"{z} ({n})" for z, n in zones.rows()))
 
 

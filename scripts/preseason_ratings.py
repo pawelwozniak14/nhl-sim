@@ -26,6 +26,7 @@ from nhlsim.config import load_season_config
 from nhlsim.ingest.franchises import TeamListError, lineage_of
 from nhlsim.ingest.results import add_lineage, load_results
 from nhlsim.ingest.schedule import check_schedule_against_config, load_schedule
+from nhlsim.io import use_utf8_output
 from nhlsim.models.elo import (
     frozen_predictions,
     home_win_probability,
@@ -51,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         "--schedule", type=Path, help="default: data/processed/schedule_<season>.parquet"
     )
     args = parser.parse_args(argv)
+    use_utf8_output()
 
     cfg = load_season_config(args.config)
     params = load_elo_config(args.elo).params

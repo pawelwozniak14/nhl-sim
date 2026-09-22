@@ -93,6 +93,7 @@ def add_lineage(games: pl.DataFrame, teams: pl.DataFrame) -> pl.DataFrame:
             lookup.rename({"team_id": f"{side}_team_id", "lineage_id": f"{side}_lineage_id"}),
             on=f"{side}_team_id",
             how="left",
+            maintain_order="left",  # polars guarantees no row order by default
         )
     unknown = out.filter(pl.col("home_lineage_id").is_null() | pl.col("away_lineage_id").is_null())
     if unknown.height:

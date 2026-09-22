@@ -11,7 +11,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from nhlsim.ingest.nhl_api import USER_AGENT, WEB_BASE, NHLClient, cache_path_for
+from nhlsim.ingest.nhl_api import (
+    MAX_RETRY_AFTER,
+    USER_AGENT,
+    WEB_BASE,
+    NHLClient,
+    _retry_after,
+    cache_path_for,
+)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "nhl_api"
 TOR_BYTES = (FIXTURES / "club_schedule_TOR_20262027_excerpt.json").read_bytes()
@@ -261,3 +268,29 @@ def test_follows_redirect_and_caches_under_requested_url(tmp_path: Path) -> None
     with make_client(tmp_path, handler, FakeTime()) as client:
         assert client.get_json(now_url) == {"standings": []}
     assert cache_path_for(now_url, tmp_path / "cache").exists()
+
+
+@pytest.mark.parametrize(
+    ("header", "seconds"),
+    [
+        ("7", 7.0),
+        ("0.5", 0.5),
+        ("600", MAX_RETRY_AFTER),  # capped
+        ("inf", 0.0),  # time.sleep(inf) would raise OverflowError
+        ("nan", 0.0),
+        ("-3", 0.0),
+        ("Wed, 21 Oct 2026 07:28:00 GMT", 0.0),  # HTTP-date form: not supported
+        (None, 0.0),
+    ],
+)
+def test_retry_after_parsing(header: str | None, seconds: float) -> None:
+    headers = {} if header is None else {"Retry-After": header}
+    assert _retry_after(httpx.Response(429, headers=headers)) == seconds
+
+
+def test_long_retry_after_is_capped(tmp_path: Path) -> None:
+    handler, _ = responder(httpx.Response(429, headers={"Retry-After": "86400"}), ok())
+    fake = FakeTime()
+    with make_client(tmp_path, handler, fake, backoff=1.0, min_interval=0) as client:
+        client.get_json(TOR_URL)
+    assert fake.sleeps == [MAX_RETRY_AFTER]

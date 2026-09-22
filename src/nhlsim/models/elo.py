@@ -133,7 +133,11 @@ class EloRun:
         season_start: Each team's rating going into its first game of each season, i.e.
             after the between-season pull (:data:`RATINGS_SCHEMA`). These are the ratings
             a preseason projection would have used.
-        final: Each team's rating after its last game, with the season of that game.
+        final: Each team's current rating, with the season of its last game. For a
+            team that played the last season in ``games`` this is its rating after its
+            last game. A team that sat out later seasons has also been pulled toward
+            the average once at the start of each of them, as it would have been had
+            it returned; :func:`opening_ratings` then applies one more pull.
     """
 
     games: pl.DataFrame

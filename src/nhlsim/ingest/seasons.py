@@ -93,7 +93,13 @@ def parse_standings_seasons(payload: Mapping[str, Any]) -> pl.DataFrame:
 
 
 def seasons_between(seasons: pl.DataFrame, first: int, last: int) -> pl.DataFrame:
-    """Seasons ``first..last`` inclusive; raises if any season in between is missing."""
+    """Seasons ``first..last`` inclusive; raises if any season in between is missing.
+
+    Raises:
+        SeasonDataError: ``first`` is after ``last``, or a season in the range is missing.
+    """
+    if first > last:
+        raise SeasonDataError(f"first season {first} is after last season {last}")
     out = seasons.filter(pl.col("season_id").is_between(first, last))
     expected = [y * 10_001 + 1 for y in range(first // 10_000, last // 10_000 + 1)]
     if out["season_id"].to_list() != expected:

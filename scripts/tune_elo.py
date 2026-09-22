@@ -48,6 +48,7 @@ from nhlsim.evaluate.elo_tuning import (
     tune,
 )
 from nhlsim.ingest.results import load_results
+from nhlsim.io import use_utf8_output
 from nhlsim.models.baselines import home_win_rate
 from nhlsim.models.elo import EloParams, frozen_predictions, run_elo
 
@@ -87,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         "--final", action="store_true", help="tune on all seasons, print config/elo.yaml"
     )
     args = parser.parse_args(argv)
+    use_utf8_output()
 
     games = load_results(args.results)
     available = sorted(games["season_id"].unique().to_list())

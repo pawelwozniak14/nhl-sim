@@ -100,7 +100,10 @@ plain loop over the games (part 4, decision 20). The result has three tables:
 
 **`opening_ratings(final, params, season_id, lineage_ids)`.** Opening ratings for a
 new season: known teams pulled toward 1500 once, new teams at 1500. Refuses a
-season that isn't after every season in `final`.
+season that isn't after every season in `final`. A team that sat out seasons at the
+end of the data (none so far) was already pulled once per missed season inside
+`run_elo`, as it would have been had it returned, so it gets one pull per season
+start since its last game in total.
 
 **`frozen_predictions(games, season_start, params)`.** Predicts every game from its
 season's opening ratings, never updated (part 2, section 9). Unplayed games are

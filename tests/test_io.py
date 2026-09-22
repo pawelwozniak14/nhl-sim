@@ -1,5 +1,6 @@
 """Tests for nhlsim.io."""
 
+import io
 from pathlib import Path
 
 import pytest
@@ -51,3 +52,41 @@ def test_atomic_write_gives_up_and_keeps_old_file(
         nhlsim_io.atomic_write_bytes(target, TOR_BYTES, sleep=lambda _: None)
     assert target.read_bytes() == b'{"old":true}'
     assert not target.with_name(target.name + ".tmp").exists()
+
+
+def test_atomic_write_removes_partial_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # e.g. disk full halfway through: the partial temp file must not be left behind
+    target = tmp_path / "20262027.json"
+    target.write_bytes(b'{"old":true}')
+    real_write = Path.write_bytes
+
+    def fail_halfway(self: Path, data: bytes) -> int:
+        real_write(self, data[: len(data) // 2])
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(nhlsim_io.Path, "write_bytes", fail_halfway)
+    with pytest.raises(OSError, match="No space left"):
+        nhlsim_io.atomic_write_bytes(target, TOR_BYTES, sleep=lambda _: None)
+    monkeypatch.undo()
+    assert target.read_bytes() == b'{"old":true}'
+    assert not target.with_name(target.name + ".tmp").exists()
+
+
+# ---- script output -----------------------------------------------------------------
+
+
+def test_use_utf8_output_allows_table_characters() -> None:
+    # a Windows pipe: legacy code page, which can't encode polars' box characters
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1250")
+    with pytest.raises(UnicodeEncodeError):
+        stream.write("\u2502")
+    nhlsim_io.use_utf8_output(stream)
+    stream.write("\u2502 Montr\u00e9al")
+    stream.flush()
+    assert stream.buffer.getvalue() == "\u2502 Montr\u00e9al".encode()
+
+
+def test_use_utf8_output_ignores_streams_without_reconfigure() -> None:
+    nhlsim_io.use_utf8_output(io.StringIO())  # no error

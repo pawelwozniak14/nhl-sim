@@ -6,6 +6,8 @@ Run from the repo root:
     uv run python scripts/fetch_results.py --first 20232024 --last 20242025
 
 Finished seasons never change, so cached responses are reused unless --refresh is given.
+Writes results_<first>_<last>.parquet and seasons_<first>_<last>.parquet (a partial range
+never overwrites the files of a full run) plus teams.parquet (the whole team list).
 Every season is checked before anything is written: the result checks, then each team's
 record (W, L, OTL, points, RW, ROW, SO W/L, GF, GA) recomputed from our games must equal
 the NHL's official final standings, after applying the documented exceptions in
@@ -40,7 +42,7 @@ from nhlsim.ingest.seasons import (
     parse_standings_seasons,
     seasons_between,
 )
-from nhlsim.io import write_parquet_atomic
+from nhlsim.io import use_utf8_output, write_parquet_atomic
 from nhlsim.simulate.standings import StandingsError, compare_records, team_records
 
 REPO = Path(__file__).resolve().parents[1]
@@ -58,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--refresh", action="store_true", help="ignore cached responses")
     args = parser.parse_args(argv)
+    use_utf8_output()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     no_point_losses = load_standings_exceptions(args.exceptions).no_point_losses
 
@@ -67,7 +70,11 @@ def main(argv: list[str] | None = None) -> int:
         seasons = parse_standings_seasons(
             client.get_json(STANDINGS_SEASON_URL, refresh=args.refresh)
         )
-        wanted = seasons_between(seasons, args.first, args.last)
+        try:
+            wanted = seasons_between(seasons, args.first, args.last)
+        except SeasonDataError as e:
+            log.error("%s", e)
+            return 1
         teams = parse_team_list(client.get_json(TEAM_LIST_URL, refresh=args.refresh))
         for season_id in wanted["season_id"]:
             try:
@@ -100,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     results = add_lineage(pl.concat(frames), teams)
     out = args.out_dir / f"results_{args.first}_{args.last}.parquet"
     save_results(results, out)
-    write_parquet_atomic(wanted, args.out_dir / "seasons.parquet")
+    write_parquet_atomic(wanted, args.out_dir / f"seasons_{args.first}_{args.last}.parquet")
     write_parquet_atomic(teams, args.out_dir / "teams.parquet")
     _print_summary(results, wanted, out, len(no_point_losses))
     return 0

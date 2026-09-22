@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import time
 from collections.abc import Callable
@@ -40,6 +41,8 @@ STATS_BASE = "https://api.nhle.com/stats/rest"
 
 USER_AGENT = f"nhl-sim/{__version__} (+https://github.com/pawelwozniak14/nhl-sim)"
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+# Longest wait honoured from a Retry-After header; a longer (or absurd) value is capped.
+MAX_RETRY_AFTER = 120.0
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -182,8 +185,14 @@ class NHLClient:
 
 
 def _retry_after(response: httpx.Response) -> float:
-    """Seconds from a numeric Retry-After header, else 0."""
+    """Seconds from a numeric Retry-After header, capped at :data:`MAX_RETRY_AFTER`.
+
+    Missing, non-numeric, negative or non-finite values (``inf``, ``nan``) give 0.
+    """
     try:
-        return max(0.0, float(response.headers.get("Retry-After", "")))
+        seconds = float(response.headers.get("Retry-After", ""))
     except ValueError:
         return 0.0
+    if not math.isfinite(seconds) or seconds < 0:
+        return 0.0
+    return min(seconds, MAX_RETRY_AFTER)

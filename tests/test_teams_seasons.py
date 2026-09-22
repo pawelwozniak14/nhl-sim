@@ -125,6 +125,12 @@ def test_seasons_between(seasons: pl.DataFrame) -> None:
     assert len(ids) == 11
 
 
+def test_seasons_between_rejects_reversed_range(seasons: pl.DataFrame) -> None:
+    # used to return no seasons, and fetch_results then crashed in pl.concat([])
+    with pytest.raises(SeasonDataError, match="20252026 is after last season 20152016"):
+        seasons_between(seasons, 20252026, 20152016)
+
+
 def test_seasons_between_detects_gap(seasons: pl.DataFrame) -> None:
     gappy = seasons.filter(pl.col("season_id") != 20192020)
     with pytest.raises(SeasonDataError, match=r"missing from the API data: \[20192020\]"):

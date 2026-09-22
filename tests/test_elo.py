@@ -422,6 +422,19 @@ def test_bad_input_is_rejected(change: dict, message: str) -> None:
         run_elo(_edit(bad, 2015020018, change), params())
 
 
+def test_final_rating_of_a_team_that_sat_out_seasons() -> None:
+    # MTL plays only in 2015-16 (after G2: 1519.712256 with K = 20); the data ends in
+    # 2016-17, so its final rating has already been pulled once (c = 0.5), and the next
+    # season's opening rating pulls it again.
+    p = params(season_regression=0.5)
+    run = run_elo(games("G1", "G2", "NEXT_SEASON"), p)
+    mtl = run.final.filter(pl.col("lineage_id") == MTL).row(0, named=True)
+    assert mtl["season_id"] == 20152016
+    assert mtl["rating"] == pytest.approx(1500 + 0.5 * 19.712256)
+    opening = opening_ratings(run.final, p, 20172018, [MTL])
+    assert opening["rating"].item() == pytest.approx(1500 + 0.25 * 19.712256)
+
+
 def test_frozen_predictions_reject_duplicate_opening_ratings() -> None:
     # used to return one extra row per game of the duplicated team (audit C5)
     g = games("G1", "G2", "G3")

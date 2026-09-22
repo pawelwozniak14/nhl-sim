@@ -6,9 +6,11 @@ import contextlib
 import io
 import logging
 import os
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import TextIO
 
 import polars as pl
 
@@ -27,13 +29,13 @@ def atomic_write_bytes(
 ) -> None:
     """Write via a temp file + rename, so a crash never leaves a half-written cache file.
 
-    If the rename keeps failing, the temp file is removed and the existing cache file
-    (if any) is left untouched.
+    If writing the temp file fails or the rename keeps failing, the temp file is removed
+    and the existing cache file (if any) is left untouched.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(content)
     try:
+        tmp.write_bytes(content)
         for delay in (*REPLACE_RETRY_DELAYS, None):
             try:
                 os.replace(tmp, path)
@@ -53,3 +55,17 @@ def write_parquet_atomic(df: pl.DataFrame, path: Path) -> None:
     buffer = io.BytesIO()
     df.write_parquet(buffer)
     atomic_write_bytes(Path(path), buffer.getvalue())
+
+
+def use_utf8_output(*streams: TextIO) -> None:
+    """Switch text streams (default: stdout and stderr) to UTF-8, for scripts.
+
+    On Windows, output redirected to a file or pipe (``| Out-File``) is encoded with the
+    legacy code page (e.g. cp1250), which can't encode the box characters polars uses
+    to draw tables, so printing a table crashed. Streams without ``reconfigure`` (e.g.
+    replaced by a test harness) are left alone.
+    """
+    for stream in streams or (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
