@@ -25,6 +25,7 @@ from nhlsim.models.elo import (
     EloError,
     EloParams,
     EloRun,
+    frozen_predictions,
     home_win_probability,
     opening_ratings,
     run_elo,
@@ -284,6 +285,80 @@ def test_final_records_each_teams_last_season() -> None:
     run = run_elo(games("G1", "G2", "G3", "NEXT_SEASON"), params())
     last = dict(zip(run.final["lineage_id"], run.final["season_id"], strict=True))
     assert last == {MTL: 20152016, TOR: 20162017, BOS: 20162017}
+
+
+# ---- frozen (preseason) predictions -------------------------------------------------------
+
+SEASONS_15_16 = ["G1", "G2", "G3", "NEXT_SEASON"]
+
+
+def test_frozen_predictions_use_opening_ratings() -> None:
+    g = games(*SEASONS_15_16)
+    run = run_elo(g, params())
+    frozen = frozen_predictions(g, run.season_start, params())
+    assert frozen.schema == pl.Schema(GAME_PREDICTIONS_SCHEMA)
+    assert frozen["game_id"].to_list() == [2015020001, 2015020018, 2015020312, 2016020017]
+    # 2015-16: everyone opens at 1500, and nothing is updated during the season
+    assert frozen["p_home"].to_list()[:3] == [0.5, 0.5, 0.5]
+    assert frozen["home_rating"].to_list()[:3] == [1500.0, 1500.0, 1500.0]
+    # 2016-17: TOR 1490.004141 v BOS 1500.139731 (see the season-pull test)
+    assert frozen["p_home"][3] == pytest.approx(0.4854178500209925)
+    assert frozen["home_won"].to_list() == [False, False, False, True]
+
+
+def test_frozen_predictions_apply_home_advantage() -> None:
+    g = games(*SEASONS_15_16)
+    p = params(home_advantage=100.0)
+    frozen = frozen_predictions(g, run_elo(g, params()).season_start, p)
+    assert frozen["p_home"][3] == pytest.approx(0.6265164634367577)
+
+
+def test_frozen_predictions_ignore_results_within_the_season() -> None:
+    real = games("G1", "G2", "G3")
+    flipped = _edit(real, 2015020018, {"home_score": pl.lit(4), "away_score": pl.lit(2)})
+    starts = run_elo(real, params()).season_start
+    assert frozen_predictions(real, starts, params())["p_home"].equals(
+        frozen_predictions(flipped, starts, params())["p_home"]
+    )
+
+
+def test_frozen_predictions_include_unplayed_games() -> None:
+    g = games(*SEASONS_15_16)
+    starts = run_elo(g, params()).season_start
+    future = _edit(g, 2016020017, {"game_state": pl.lit("FUT")})
+    live = _edit(g, 2016020017, {"game_state": pl.lit("LIVE")})  # has a score, still unplayed
+    for unplayed in (future, live):
+        frozen = frozen_predictions(unplayed, starts, params())
+        assert frozen["home_won"][3] is None
+        assert frozen["p_home"][3] == pytest.approx(0.4854178500209925)
+
+
+def test_frozen_predictions_follow_time_order() -> None:
+    g = games(*SEASONS_15_16)
+    starts = run_elo(g, params()).season_start
+    shuffled = games(*reversed(SEASONS_15_16))
+    assert frozen_predictions(shuffled, starts, params()).equals(
+        frozen_predictions(g, starts, params())
+    )
+
+
+def test_frozen_predictions_need_every_opening_rating() -> None:
+    g = games(*SEASONS_15_16)
+    starts = run_elo(g, params()).season_start.filter(
+        ~((pl.col("season_id") == 20162017) & (pl.col("lineage_id") == BOS))
+    )
+    with pytest.raises(EloError, match="no opening rating for a team in games: 2016020017"):
+        frozen_predictions(g, starts, params())
+
+
+def test_opening_ratings_feed_frozen_predictions() -> None:
+    # the 2026-27 path: final ratings -> opening ratings -> predictions for unplayed games
+    p = params(season_regression=0.5)
+    run = run_elo(games("G1", "G2", "G3"), p)
+    starts = opening_ratings(run.final, p, 20162017, [TOR, BOS])
+    future = _edit(games("NEXT_SEASON"), 2016020017, {"game_state": pl.lit("FUT")})
+    frozen = frozen_predictions(future, starts, p)
+    assert frozen["p_home"].item() == pytest.approx(0.4854178500209925)
 
 
 # ---- opening ratings for a new season --------------------------------------------------

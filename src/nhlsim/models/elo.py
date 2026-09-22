@@ -49,7 +49,7 @@ GAME_PREDICTIONS_SCHEMA: dict[str, pl.DataType] = {
     "home_rating": pl.Float64(),  # before the game
     "away_rating": pl.Float64(),
     "p_home": pl.Float64(),  # home win probability, home advantage included
-    "home_won": pl.Boolean(),
+    "home_won": pl.Boolean(),  # null for unplayed games (frozen predictions only)
 }
 
 RATINGS_SCHEMA: dict[str, pl.DataType] = {
@@ -184,6 +184,43 @@ def opening_ratings(
         for t in sorted(set(lineage_ids))
     ]
     return pl.DataFrame(rows, schema=RATINGS_SCHEMA, orient="row")
+
+
+def frozen_predictions(
+    games: pl.DataFrame, season_start: pl.DataFrame, params: EloParams
+) -> pl.DataFrame:
+    """Predict every game in ``games`` from its season's opening ratings, never updated.
+
+    This is what a preseason projection does: ``season_start`` holds one rating per
+    (season, team), e.g. :attr:`EloRun.season_start` for backtests or the output of
+    :func:`opening_ratings` for a new season. Unplayed games are included, with
+    ``home_won`` null. Rows follow start-time order (ties broken by game ID).
+
+    Raises:
+        EloError: a game's team has no opening rating for that season.
+    """
+    starts = season_start.select("season_id", "lineage_id", "rating")
+    out = games.sort("start_time_utc", "game_id").select(
+        "game_id",
+        "season_id",
+        "home_lineage_id",
+        "away_lineage_id",
+        home_won=pl.when(is_played()).then(pl.col("home_score") > pl.col("away_score")),
+    )
+    for side in ("home", "away"):
+        out = out.join(
+            starts.rename({"lineage_id": f"{side}_lineage_id", "rating": f"{side}_rating"}),
+            on=["season_id", f"{side}_lineage_id"],
+            how="left",
+            maintain_order="left",
+        )
+    missing = out.filter(pl.col("home_rating").is_null() | pl.col("away_rating").is_null())
+    if missing.height:
+        ids = ", ".join(map(str, missing["game_id"].head(10).to_list()))
+        raise EloError(f"no opening rating for a team in games: {ids}")
+    diff = pl.col("home_rating") + params.home_advantage - pl.col("away_rating")
+    out = out.with_columns(p_home=1.0 / (1.0 + 10.0 ** (-diff / SCALE)))
+    return out.select([pl.col(c).cast(t) for c, t in GAME_PREDICTIONS_SCHEMA.items()])
 
 
 def _check(played: pl.DataFrame) -> None:
