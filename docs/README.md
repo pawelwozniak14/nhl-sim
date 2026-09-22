@@ -15,11 +15,11 @@ The first model in the project and the baseline every later model must beat.
    the pull between seasons, with worked examples on real games.
 3. [Tuning and evaluation](elo/03-tuning-and-evaluation.md): how the settings were
    chosen and scored, and the full results.
+4. [Decisions](elo/04-decisions.md): every design choice with its reasoning,
+   including what was tried and rejected.
 
 Planned, in this order:
 
-4. Decisions: every design choice with its reasoning, including what was tried and
-   rejected.
 5. Implementation: where each piece lives in the code, and how to reproduce every
    number.
 6. Roadmap and limitations: what is planned next and what the model cannot capture.
