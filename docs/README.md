@@ -11,11 +11,11 @@ The first model in the project and the baseline every later model must beat.
 
 1. [Overview](elo/01-overview.md): what the model does, its settings, how accurate it
    is, and what it does not know.
+2. [The maths](elo/02-maths.md): ratings, win probabilities, updates, home advantage,
+   the pull between seasons, with worked examples on real games.
 
 Planned, in this order:
 
-2. The maths: ratings, win probabilities, updates, home advantage, the pull between
-   seasons, with worked examples on real games.
 3. Tuning and evaluation: how the settings were chosen and scored, and the full
    results.
 4. Decisions: every design choice with its reasoning, including what was tried and
