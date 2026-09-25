@@ -29,12 +29,12 @@ by CRPS of final points; the published σ = 45 rating points gives ranges with t
 right coverage, and held-out seasons confirmed it. The full description is in
 [simulator part 2](../simulator/02-season-simulation.md).
 
-**Frozen game probabilities.** The preseason freeze will publish a probability for
-every game. They can come either straight from the opening ratings (as in part 2,
-section 9) or as averages over the simulated seasons, which the uncertainty about
-strength pulls slightly toward 50%. With strengths fixed within each simulated season,
-that pull is the same for every game, early or late. The choice will be made by
-comparing both on past seasons.
+**Frozen game probabilities** (done, September 2026). The freeze publishes, for every
+game, the outcome model's probabilities averaged over the uncertainty about strength:
+exactly the probabilities the simulated standings are built from. On replayed past
+preseasons they were as accurate as Elo's own frozen predictions (part 2, section 9);
+they were chosen because they agree with the published standings. Details in
+[simulator part 2](../simulator/02-season-simulation.md), section 7.
 
 **Tiebreakers and playoff seeding** (task 1.4). Before the freeze, ties in the
 simulated standings will be broken by points, regulation wins, regulation plus

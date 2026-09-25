@@ -1,11 +1,11 @@
 # Season simulator, part 2: simulated seasons and uncertainty about strength
 
-*Status: implemented and tuned (task 1.6, steps b and c, September 2026). Settings in
+*Status: implemented and tuned (task 1.6, steps b to d, September 2026). Settings in
 [`config/model.yaml`](../../config/model.yaml); simulator in
 [`src/nhlsim/simulate/season.py`](../../src/nhlsim/simulate/season.py); preseason replays
 in [`src/nhlsim/evaluate/preseason.py`](../../src/nhlsim/evaluate/preseason.py). Every
 number below is reproduced by [`scripts/tune_sigma.py`](../../scripts/tune_sigma.py)
-(sections 4 and 5, a few minutes) or
+(sections 4, 5 and 7, a few minutes) or
 [`scripts/simulate_season.py`](../../scripts/simulate_season.py) (section 6, about 20
 seconds).*
 
@@ -44,7 +44,7 @@ summer's trades or signings. 2025-26 showed how far off opening ratings can be
 
 The consequence is measurable. Replaying the five seasons 2017-18 to 2021-22 (section 3),
 the 90% ranges from fixed ratings contained the real final points of only 68% of teams
-(section 4). The projection was overconfident.
+(section 5). The projection was overconfident.
 
 The fix: each simulated season first draws every team's "true" strength around its
 opening rating,
@@ -77,7 +77,7 @@ fairly too.
 
 Every candidate $`\sigma`$ (0, 5, 10, …, 100) is scored on the **same random numbers**,
 only scaled by $`\sigma`$, so the differences between candidates reflect $`\sigma`$, not
-luck (section 7).
+luck (section 8).
 
 ## 4. How the replays are scored
 
@@ -179,10 +179,59 @@ on average, against 306.8 without uncertainty (the model's own expectation, aver
 the first 2,000 simulated seasons' strengths: 298.2). Every team plays exactly 84 games in
 every simulated season.
 
-This is a preview, not the freeze: playoff odds need tiebreakers and seeding (task 1.4),
-and the game probabilities the freeze publishes are still to be decided (task 1.6 d).
+This is a preview, not the freeze: playoff odds need tiebreakers and seeding (task 1.4).
+The game probabilities the freeze publishes are described in the next section.
 
-## 7. Random numbers and reproducibility
+## 7. Game probabilities for the freeze
+
+Besides standings, the preseason freeze publishes a probability for every game. Three
+candidates were considered:
+
+- **Elo's formula** from the opening ratings (what `scripts/preseason_ratings.py` prints);
+- **the outcome model** ([part 1](01-outcome-split.md)) at the opening-rating difference
+  $`d`$;
+- **the outcome model averaged over the uncertainty about strength**: the probabilities
+  the simulated seasons actually produce, on average.
+
+The third is what the freeze publishes. In the simulator each team's strength varies
+around its rating with spread $`\sigma`$, independently of its opponent's, so a game's
+rating difference varies around $`d`$ with spread $`\sigma\sqrt{2}`$ (about 64 rating points
+for $`\sigma`$ = 45). The published probabilities are the outcome model averaged over that
+spread:
+
+```math
+P_{\text{published}}(\text{outcome}) = \mathbb{E}_z\!\left[P\big(\text{outcome} \mid d + \sigma\sqrt{2}\,z\big)\right], \qquad z \sim \mathcal{N}(0, 1)
+```
+
+computed exactly (Gauss-Hermite quadrature, 40 points), not counted from simulations, so
+they carry no simulation noise. The averaging pulls every game slightly toward even:
+Chicago at Colorado, the most lopsided game of 2026-27, has a published home win
+probability of 0.7158 (the outcome model at $`d`$: 0.7218; Elo: 0.7167).
+
+**Why this one: coherence, not accuracy.** On replayed past preseasons the three are
+equally accurate (evaluation settings; averaged at the evaluation $`\sigma`$ = 50):
+
+| Replayed preseasons | Elo's formula | Outcome model | Averaged |
+|---|---|---|---|
+| Fitting seasons: log loss of home win | 0.67594 | 0.67594 | 0.67594 |
+| Held out: log loss of home win | 0.67671 | 0.67676 | 0.67639 |
+| Held out: log loss of the six outcomes | | 1.34610 | 1.34569 |
+| Held out: RPS of the three-way result | | 0.23032 | 0.23023 |
+
+A tie on the fitting seasons, and within four ten-thousandths held out (where the averaged
+probabilities happen to be marginally best). What decides it is that the averaged
+probabilities are the ones the standings are built from: add up a team's published win
+probabilities over its 84 games and you get its projected mean wins. For Colorado that
+sum is 49.66, and the 50,000 simulated seasons give 49.69 ± 0.03; the unaveraged outcome
+model would give 49.90 (a development check, not printed by the scripts). With either
+other candidate, the game table and the standings table of the same freeze would
+disagree.
+
+**What is published per game:** all six outcome probabilities (away and home wins in
+regulation, overtime and a shootout), plus the home win probability as their sum. How
+they will be graded is fixed in advance in the freeze's grading plan (task 1.7).
+
+## 8. Random numbers and reproducibility
 
 - **One seed, fixed in advance.** The seed 202627 was chosen before any simulated result
   was seen and is never changed to get "better" numbers.
@@ -197,7 +246,7 @@ and the game probabilities the freeze publishes are still to be decided (task 1.
 - **Speed.** 50,000 simulated 2026-27 seasons take about 20 seconds on the owner's machine.
   The random error on a probability of 50% is then about ±0.2 percentage points.
 
-## 8. Decisions
+## 9. Decisions
 
 | Decision | Reasoning |
 |---|---|
@@ -208,8 +257,9 @@ and the game probabilities the freeze publishes are still to be decided (task 1.
 | Fitting seasons chosen on, held-out seasons reported only; published value chosen on all seasons | The same pattern as the Elo settings and the outcome model |
 | $`\sigma`$ tied to its Elo settings | $`\sigma`$ is on the scale of the ratings; `config/model.yaml` records the Elo settings, and the code refuses to use $`\sigma`$ with any others |
 | 50,000 simulated seasons | 20 seconds; random error about ±0.2 points on a 50% probability |
+| Freeze game probabilities: the outcome model averaged over the strength uncertainty; all six outcomes published | As accurate as the alternatives on past seasons, and consistent with the published standings (section 7) |
 
-## 9. Limitations and what comes next
+## 10. Limitations and what comes next
 
 - **One uncertainty for everyone.** An expansion team, or a team that changed half its
   roster, is as uncertain as one that kept everybody.
@@ -220,8 +270,7 @@ and the game probabilities the freeze publishes are still to be decided (task 1.
   run once games have been played.
 - **Neutral-site games** get home advantage, as everywhere else in the model.
 
-Next: the game probabilities the freeze publishes (task 1.6 d), then tiebreakers and
-playoff seeding (task 1.4) and the freeze itself (task 1.7).
+Next: tiebreakers and playoff seeding (task 1.4), then the freeze itself (task 1.7).
 
 ## Reproducing this page
 
@@ -229,7 +278,7 @@ From the repo root, after fetching the data (`scripts/fetch_results.py`,
 `scripts/fetch_schedule.py`):
 
 ```
-uv run python scripts/tune_sigma.py            # sections 4 and 5 (fitting and held out)
+uv run python scripts/tune_sigma.py            # sections 4, 5 and 7 (fitting, held out)
 uv run python scripts/tune_sigma.py --final    # section 5 (config/model.yaml)
 uv run python scripts/simulate_season.py       # section 6
 uv run python scripts/simulate_season.py --sigma 0   # section 6, without uncertainty
