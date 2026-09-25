@@ -20,8 +20,9 @@ Scores, pooled over team-seasons:
 - ``width_90``: mean width of the 90% ranges, in points; ``mae``: mean absolute error of
   each team's mean simulated points.
 
-Random numbers: for season ``s``, strengths come from ``default_rng([seed, s, 0])`` and
-game outcomes from ``default_rng([seed, s, 1])``, so every ``sigma`` is scored on the same
+Random numbers: :func:`~nhlsim.simulate.season.projection_rngs`, as for a published
+projection. For season ``s``, strengths come from ``default_rng([seed, s, 0])`` and game
+outcomes from ``default_rng([seed, s, 1])``, so every ``sigma`` is scored on the same
 random numbers and differences between candidates are not luck.
 """
 
@@ -38,7 +39,7 @@ from nhlsim.config import NoPointLoss, Points
 from nhlsim.evaluate.metrics import crps
 from nhlsim.models.elo import EloParams
 from nhlsim.models.outcomes import OutcomeConfig
-from nhlsim.simulate.season import draw_strengths, simulate_season
+from nhlsim.simulate.season import draw_strengths, projection_rngs, simulate_season
 from nhlsim.simulate.standings import team_records
 
 LEVELS = (0.5, 0.8, 0.9)
@@ -91,11 +92,9 @@ def replay_season(
         away_score=pl.lit(None, pl.Int64),
         last_period_type=pl.lit(None, pl.String),
     )
-    strengths = draw_strengths(ratings, sigma, n_sims, np.random.default_rng([seed, season_id, 0]))
-    sims = simulate_season(
-        unplayed, strengths, teams, elo, outcomes, points, n_sims,
-        np.random.default_rng([seed, season_id, 1]),
-    )  # fmt: skip
+    strength_rng, game_rng = projection_rngs(seed, season_id)
+    strengths = draw_strengths(ratings, sigma, n_sims, strength_rng)
+    sims = simulate_season(unplayed, strengths, teams, elo, outcomes, points, n_sims, game_rng)
 
     records = team_records(games, no_point_losses=no_point_losses)
     lineage = dict(

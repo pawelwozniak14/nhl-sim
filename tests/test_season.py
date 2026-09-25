@@ -10,15 +10,19 @@ Hand-worked cases use strengths 10,000 rating points apart: the stronger team's 
 of anything but a regulation win is below e^-50, so every outcome is certain.
 """
 
+import copy
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import numpy as np
 import polars as pl
 import pytest
+import yaml
+from pydantic import ValidationError
 
 from nhlsim.config import NoPointLoss, Points
 from nhlsim.ingest.results import RESULTS_SCHEMA
-from nhlsim.models.elo import EloParams
+from nhlsim.models.elo import EloParams, load_elo_config
 from nhlsim.models.outcomes import (
     OutcomeConfig,
     OutcomeError,
@@ -26,7 +30,16 @@ from nhlsim.models.outcomes import (
     OutcomeParams,
     outcome_probabilities,
 )
-from nhlsim.simulate.season import SeasonSims, SimulationError, draw_strengths, simulate_season
+from nhlsim.simulate.season import (
+    ModelConfig,
+    SeasonSims,
+    SimulationError,
+    SimulationSettings,
+    draw_strengths,
+    load_model_config,
+    projection_rngs,
+    simulate_season,
+)
 from nhlsim.simulate.standings import StandingsError
 
 MTL, TOR, BOS = 1, 5, 6
@@ -347,3 +360,93 @@ def test_every_sigma_uses_the_same_random_numbers() -> None:
 def test_draw_strengths_bad_input(ratings, sigma: float, n_sims: int, message: str) -> None:
     with pytest.raises(SimulationError, match=message):
         draw_strengths(ratings, sigma, n_sims, np.random.default_rng(1))
+
+
+# ---- config/model.yaml --------------------------------------------------------------------------
+
+MODEL_CONFIG = Path(__file__).resolve().parents[1] / "config" / "model.yaml"
+
+
+def test_real_model_config() -> None:
+    cfg = load_model_config(MODEL_CONFIG)
+    assert cfg.simulation == SimulationSettings(sigma=45.0, n_sims=50_000, seed=202627)
+    assert (cfg.fit.first_season, cfg.fit.last_season) == (20172018, 20252026)
+    assert (cfg.fit.team_seasons, cfg.fit.sims_per_season) == (284, 5000)
+
+
+def test_real_model_config_belongs_to_the_published_elo_settings() -> None:
+    elo = load_elo_config(MODEL_CONFIG.parent / "elo.yaml").params
+    cfg = load_model_config(MODEL_CONFIG)
+    assert cfg.fit.elo == elo
+    assert cfg.settings_for(elo) == cfg.simulation
+
+
+@pytest.fixture
+def model_dict() -> dict:
+    with MODEL_CONFIG.open(encoding="utf-8") as f:
+        return copy.deepcopy(yaml.safe_load(f))
+
+
+def test_sigma_for_other_elo_settings_is_refused(model_dict: dict) -> None:
+    cfg = ModelConfig.model_validate(model_dict)
+    other = cfg.fit.elo.model_copy(update={"season_regression": 0.2})
+    with pytest.raises(SimulationError, match=r"season_regression 0\.3 vs 0\.2"):
+        cfg.settings_for(other)
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "value", "message"),
+    [
+        ("simulation", "sigma", -1.0, "greater than or equal to 0"),
+        ("simulation", "sigma", float("inf"), "finite"),
+        ("simulation", "sigma", "45", "should be a valid number"),
+        ("simulation", "n_sims", 0, "greater than 0"),
+        ("simulation", "n_sims", 50000.0, "should be a valid integer"),
+        ("simulation", "seed", -1, "greater than or equal to 0"),
+        ("simulation", "seed", "202627", "should be a valid integer"),
+        ("simulation", "chunk", 1000, "Extra inputs"),
+        ("fit", "first_season", 2017, "must look like 20172018"),
+        ("fit", "last_season", 20252027, "must look like 20172018"),
+        ("fit", "first_season", 20262027, "first_season <= last_season"),
+        ("fit", "team_seasons", 0, "greater than 0"),
+        ("fit", "sims_per_season", 0, "greater than 0"),
+        ("fit", "source", "", "at least 1 character"),
+    ],
+)
+def test_invalid_model_config(
+    model_dict: dict, section: str, key: str, value: object, message: str
+) -> None:
+    model_dict[section][key] = value
+    with pytest.raises(ValidationError, match=message):
+        ModelConfig.model_validate(model_dict)
+
+
+def test_model_config_fitted_on_one_season_is_valid(model_dict: dict) -> None:
+    model_dict["fit"]["first_season"] = model_dict["fit"]["last_season"] = 20252026
+    assert ModelConfig.model_validate(model_dict).fit.last_season == 20252026
+
+
+def test_zero_sigma_is_a_valid_setting(model_dict: dict) -> None:
+    model_dict["simulation"]["sigma"] = 0.0
+    assert ModelConfig.model_validate(model_dict).simulation.sigma == 0.0
+
+
+def test_model_config_elo_block_is_strict(model_dict: dict) -> None:
+    model_dict["fit"]["elo"]["k"] = "9"
+    with pytest.raises(ValidationError, match="should be a valid number"):
+        ModelConfig.model_validate(model_dict)
+
+
+def test_model_config_must_be_a_mapping(tmp_path: Path) -> None:
+    p = tmp_path / "model.yaml"
+    p.write_text("- 45\n", encoding="utf-8")
+    with pytest.raises(TypeError, match="mapping"):
+        load_model_config(p)
+
+
+def test_projection_rngs() -> None:
+    strengths, games = projection_rngs(202627, 20262027)
+    assert strengths.random() == np.random.default_rng([202627, 20262027, 0]).random()
+    assert games.random() == np.random.default_rng([202627, 20262027, 1]).random()
+    other_season = projection_rngs(202627, 20252026)[0]
+    assert other_season.random() != np.random.default_rng([202627, 20262027, 0]).random()

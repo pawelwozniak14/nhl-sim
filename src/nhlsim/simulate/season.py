@@ -13,17 +13,24 @@ uncertainty about how strong each team really is (task 1.6, step c).
 
 Reproducibility: all randomness comes from the ``rng`` passed in, one uniform number per
 simulated season and remaining game, drawn in simulation order. The simulations are run
-in chunks to bound memory; the chunk size never changes the result.
+in chunks to bound memory; the chunk size never changes the result. Projections draw
+strengths and games from the two generators of :func:`projection_rngs`.
+
+The published simulator settings (sigma, number of simulated seasons, seed) live in
+``config/model.yaml`` (:func:`load_model_config`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import polars as pl
+import yaml
 from numpy.typing import ArrayLike, NDArray
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nhlsim.config import NoPointLoss, Points
 from nhlsim.ingest.schedule import is_played
@@ -50,6 +57,93 @@ _AWAY = _HOME[::-1]  # the same outcomes seen from the other side
 
 class SimulationError(ValueError):
     """Inconsistent input to the season simulator."""
+
+
+class SimulationSettings(BaseModel):
+    """How a published projection is simulated. Immutable; strict."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    sigma: float = Field(ge=0, allow_inf_nan=False)  # rating points
+    n_sims: int = Field(gt=0)
+    seed: int = Field(ge=0)
+
+
+class SigmaFitInfo(BaseModel):
+    """Where the published sigma came from (see ``config/model.yaml``)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    elo: EloParams  # the Elo settings sigma was tuned with
+    first_season: int
+    last_season: int
+    team_seasons: int = Field(gt=0)
+    sims_per_season: int = Field(gt=0)
+    source: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _seasons_in_order(self) -> SigmaFitInfo:
+        for name in ("first_season", "last_season"):
+            start, end = divmod(getattr(self, name), 10_000)
+            if end != start + 1:
+                raise ValueError(f"{name} must look like 20172018, got {getattr(self, name)}")
+        if not self.first_season <= self.last_season:
+            raise ValueError("need first_season <= last_season")
+        return self
+
+
+class ModelConfig(BaseModel):
+    """The simulator settings the published projections use, with provenance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    simulation: SimulationSettings
+    fit: SigmaFitInfo
+
+    def settings_for(self, elo: EloParams) -> SimulationSettings:
+        """The settings, if sigma was tuned for these Elo settings.
+
+        sigma is on the scale of the ratings it was tuned with; another K, home
+        advantage or pull would make it too wide or too narrow.
+
+        Raises:
+            SimulationError: ``elo`` differs from the settings recorded in ``fit.elo``.
+        """
+        if elo != self.fit.elo:
+            ours, theirs = self.fit.elo.model_dump(), elo.model_dump()
+            diffs = ", ".join(
+                f"{k} {ours[k]!r} vs {theirs[k]!r}" for k in ours if ours[k] != theirs[k]
+            )
+            raise SimulationError(
+                f"sigma was tuned with other Elo settings ({diffs}); "
+                "retune with scripts/tune_sigma.py --final"
+            )
+        return self.simulation
+
+
+def load_model_config(path: Path | str) -> ModelConfig:
+    """Read and validate ``config/model.yaml``.
+
+    Raises:
+        TypeError: if the file does not contain a YAML mapping.
+        pydantic.ValidationError: if the content is invalid.
+    """
+    with Path(path).open(encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    if not isinstance(raw, dict):
+        raise TypeError(f"{path}: expected a YAML mapping, got {type(raw).__name__}")
+    return ModelConfig.model_validate(raw)
+
+
+def projection_rngs(seed: int, season_id: int) -> tuple[np.random.Generator, np.random.Generator]:
+    """The two random-number generators of a season's projection: strengths, then games.
+
+    ``default_rng([seed, season_id, 0])`` for :func:`draw_strengths` and
+    ``default_rng([seed, season_id, 1])`` for :func:`simulate_season`. Replayed past
+    preseasons (sigma tuning) and published projections draw the same way, and separate
+    generators keep the game draws the same whatever sigma is.
+    """
+    return np.random.default_rng([seed, season_id, 0]), np.random.default_rng([seed, season_id, 1])
 
 
 @dataclass(frozen=True)
