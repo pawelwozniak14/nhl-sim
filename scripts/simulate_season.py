@@ -14,9 +14,16 @@ Random numbers as in the replays that tuned sigma (nhlsim.simulate.season.projec
 Refuses to run once games of the season have been played: in-season projections need
 current ratings (the daily pipeline, task 3.1).
 
-Checks that every team plays the configured number of games in every simulated season
-and compares the number of games going past regulation with the model's expectation
-(computed for the first 2,000 simulated seasons' strengths).
+Then orders every simulated season by the NHL's tiebreakers (a seeded random draw for
+ties they can't settle; nhlsim.simulate.playoffs) and prints each team's chances of a
+playoff place, of each seed, of first place in its conference and of the Presidents'
+Trophy. No playoff series are simulated: that is a separate model, after the regular
+season.
+
+Checks that every team plays the configured number of games in every simulated season,
+compares the number of games going past regulation with the model's expectation
+(computed for the first 2,000 simulated seasons' strengths), and that every simulated
+season has the configured number of playoff teams in each conference.
 
 Nothing is written; the report goes to stdout.
 """
@@ -38,6 +45,7 @@ from nhlsim.ingest.schedule import check_schedule_against_config, is_played, loa
 from nhlsim.io import use_utf8_output
 from nhlsim.models.elo import load_elo_config, opening_ratings, run_elo
 from nhlsim.models.outcomes import load_outcome_config, outcome_probabilities, three_way
+from nhlsim.simulate.playoffs import playoff_odds, rank_simulations, tiebreak_rng
 from nhlsim.simulate.season import (
     draw_strengths,
     load_model_config,
@@ -127,6 +135,26 @@ def main(argv: list[str] | None = None) -> int:
     print()
     _print_table(sims, ratings, abbrev)
     _print_checks(sims, games, strengths, ids, elo, outcomes, cfg.regular_season.games_per_team)
+
+    abbrevs = [abbrev[int(t)] for t in ids]
+    conference = [cfg.conference_of(a) for a in abbrevs]
+    division = [cfg.team(a).division for a in abbrevs]
+    ranks = rank_simulations(
+        sims, conference, division, cfg.playoffs, tiebreak_rng(seed, cfg.season_id)
+    )
+    _print_playoff_odds(playoff_odds(ranks, cfg.playoffs), abbrev, conference, cfg)
+    in_playoffs = ranks.slot > 0
+    expected = {  # division places of the conference's divisions + its wild cards
+        c: cfg.playoffs.division_qualifiers
+        * len({d for d, x in zip(division, conference, strict=True) if x == c})
+        + cfg.playoffs.wild_cards_per_conference
+        for c in set(conference)
+    }
+    same = all(
+        bool((in_playoffs[:, np.array(conference) == c].sum(axis=1) == n).all())
+        for c, n in expected.items()
+    )
+    print(f"\nEvery simulated season has the configured playoff teams per conference: {same}")
     return 0
 
 
@@ -141,6 +169,23 @@ def _print_table(sims, strengths: np.ndarray, abbrev: dict[int, str]) -> None:
             f"{rank:4d} {abbrev[int(sims.teams[i])]:4}  {strengths[i]:7.1f}"
             f"          {points[:, i].mean():6.1f} {low[i]:4d} {mid[i]:4d} {high[i]:4d}"
             f"  {w:5.1f}  {rw:5.1f}  {otl:5.1f}"
+        )
+
+
+def _print_playoff_odds(odds: pl.DataFrame, abbrev: dict[int, str], conference, cfg) -> None:
+    """Chances in percent, each conference sorted by the chance of a playoff place."""
+    wild = [c for c in odds.columns if c.startswith("wild_card_")]
+    table = odds.with_columns(
+        team=pl.col("lineage_id").replace_strict(abbrev),
+        conference=pl.Series(conference),
+        wild_card=pl.sum_horizontal(wild),
+    ).sort(["conference", "make_playoffs"], descending=[False, True])
+    print("\nconf team  playoffs  division 1st  wild card  1st in conf  Presidents' Trophy")
+    for r in table.iter_rows(named=True):
+        print(
+            f"  {r['conference']}  {r['team']:4}  {100 * r['make_playoffs']:7.1f}%"
+            f"  {100 * r['division_1']:10.1f}%  {100 * r['wild_card']:8.1f}%"
+            f"  {100 * r['first_in_conference']:10.1f}%  {100 * r['presidents_trophy']:10.1f}%"
         )
 
 
