@@ -1,0 +1,148 @@
+"""Simulate the new season from its opening ratings and print each team's projection.
+
+Run from the repo root (after fetch_results.py and fetch_schedule.py):
+
+    uv run python scripts/simulate_season.py                # 10,000 simulated seasons
+    uv run python scripts/simulate_season.py --sims 50000   # also times the full run
+
+A preview of the cold simulator (task 1.6, step b): opening Elo ratings as in
+preseason_ratings.py, the outcome model from config/outcomes.yaml, every game of the
+season simulated with the same strengths in every simulated season (no uncertainty about
+team strength yet, so the ranges below are too narrow; step c adds it). Refuses to run
+once games of the season have been played: in-season projections need current ratings
+(the daily pipeline, task 3.1).
+
+Checks that every team plays the configured number of games in every simulated season
+and compares the share of games going past regulation with the model's expectation.
+
+Nothing is written; the report goes to stdout.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+
+from nhlsim.config import load_season_config, load_standings_exceptions
+from nhlsim.ingest.franchises import TeamListError, lineage_of
+from nhlsim.ingest.results import add_lineage, load_results
+from nhlsim.ingest.schedule import check_schedule_against_config, is_played, load_schedule
+from nhlsim.io import use_utf8_output
+from nhlsim.models.elo import load_elo_config, opening_ratings, run_elo
+from nhlsim.models.outcomes import load_outcome_config, outcome_probabilities, three_way
+from nhlsim.simulate.season import simulate_season
+
+REPO = Path(__file__).resolve().parents[1]
+SEED = 202627  # fixed before any simulated result was seen (2026-09-25); never re-picked
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--config", type=Path, default=REPO / "config" / "season_2026_27.yaml")
+    parser.add_argument("--elo", type=Path, default=REPO / "config" / "elo.yaml")
+    parser.add_argument("--outcomes", type=Path, default=REPO / "config" / "outcomes.yaml")
+    parser.add_argument(
+        "--exceptions", type=Path, default=REPO / "config" / "standings_exceptions.yaml"
+    )
+    parser.add_argument(
+        "--results",
+        type=Path,
+        default=REPO / "data" / "processed" / "results_20152016_20252026.parquet",
+    )
+    parser.add_argument("--teams", type=Path, default=REPO / "data" / "processed" / "teams.parquet")
+    parser.add_argument(
+        "--schedule", type=Path, help="default: data/processed/schedule_<season>.parquet"
+    )
+    parser.add_argument("--sims", type=int, default=10_000)
+    parser.add_argument("--seed", type=int, default=SEED)
+    args = parser.parse_args(argv)
+    use_utf8_output()
+
+    cfg = load_season_config(args.config)
+    elo = load_elo_config(args.elo).params
+    outcomes = load_outcome_config(args.outcomes)
+    exceptions = load_standings_exceptions(args.exceptions).no_point_losses
+    results = load_results(args.results)
+    teams = pl.read_parquet(args.teams)
+    schedule_path = (
+        args.schedule or REPO / "data" / "processed" / f"schedule_{cfg.season_id}.parquet"
+    )
+    schedule = load_schedule(schedule_path)
+    check_schedule_against_config(schedule, cfg)
+    if played := schedule.filter(is_played()).height:
+        print(f"error: {played} games already played; this preview is preseason only",
+              file=sys.stderr)  # fmt: skip
+        return 1
+
+    start_year = cfg.season_id // 10_000
+    previous = (start_year - 1) * 10_000 + start_year
+    if (last := results["season_id"].max()) != previous:
+        print(f"error: results end with {last}, expected {previous}", file=sys.stderr)
+        return 1
+    try:
+        lineage = lineage_of([t.nhl_team_id for t in cfg.teams], teams)
+    except TeamListError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    abbrev = {lineage[t.nhl_team_id]: t.abbrev for t in cfg.teams}
+
+    opening = opening_ratings(run_elo(results, elo).final, elo, cfg.season_id, lineage.values())
+    ids, strengths = opening["lineage_id"].to_numpy(), opening["rating"].to_numpy()
+    games = add_lineage(schedule, teams)
+
+    started = time.perf_counter()
+    sims = simulate_season(
+        games, strengths, ids, elo, outcomes, cfg.points, args.sims,
+        np.random.default_rng(args.seed), no_point_losses=exceptions,
+    )  # fmt: skip
+    elapsed = time.perf_counter() - started
+
+    print(f"{cfg.label}: {args.sims:,} simulated seasons, seed {args.seed}, {elapsed:.1f} s")
+    print(f"Elo settings: {elo.model_dump()}")
+    print("Same strengths in every simulated season (no uncertainty yet): ranges too narrow.\n")
+    _print_table(sims, strengths, abbrev)
+    _print_checks(sims, games, strengths, ids, elo, outcomes, cfg.regular_season.games_per_team)
+    return 0
+
+
+def _print_table(sims, strengths: np.ndarray, abbrev: dict[int, str]) -> None:
+    points = sims.points
+    low, mid, high = np.quantile(points, [0.05, 0.5, 0.95], axis=0, method="inverted_cdf")
+    order = np.argsort(-points.mean(axis=0), kind="stable")
+    print("rank team  opening   points: mean  5%  50%  95%    W      RW     OTL")
+    for rank, i in enumerate(order, 1):
+        w, rw, otl = (getattr(sims, k)[:, i].mean() for k in ("w", "rw", "otl"))
+        print(
+            f"{rank:4d} {abbrev[int(sims.teams[i])]:4}  {strengths[i]:7.1f}"
+            f"          {points[:, i].mean():6.1f} {low[i]:4d} {mid[i]:4d} {high[i]:4d}"
+            f"  {w:5.1f}  {rw:5.1f}  {otl:5.1f}"
+        )
+
+
+def _print_checks(sims, games, strengths, ids, elo, outcomes, games_per_team: int) -> None:
+    gp = sims.w + sims.l + sims.otl
+    print(f"\nEvery team plays {games_per_team} games in every simulated season: "
+          f"{bool((gp == games_per_team).all())}")  # fmt: skip
+    rating = dict(zip(ids.tolist(), strengths.tolist(), strict=True))
+    d = np.array(
+        [rating[h] + elo.home_advantage - rating[a]
+         for h, a in games.select("home_lineage_id", "away_lineage_id").iter_rows()]
+    )  # fmt: skip
+    expected = three_way(outcome_probabilities(d, outcomes.params_for(elo)))[:, 1].sum()
+    per_season = sims.otl.sum(axis=1)  # every game past regulation gives exactly one OTL
+    print(
+        f"Games past regulation per season: mean {per_season.mean():.1f} "
+        f"(model expects {expected:.1f} of {games.height}), "
+        f"5-95% {int(np.quantile(per_season, 0.05, method='inverted_cdf'))}"
+        f"-{int(np.quantile(per_season, 0.95, method='inverted_cdf'))}"
+    )
+    print(f"League points per season: mean {sims.points.sum(axis=1).mean():.1f}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
