@@ -7,9 +7,9 @@ real results, counted by :func:`~nhlsim.simulate.standings.team_records` (so doc
 standings exceptions apply). The result is each team's record in every simulated season.
 
 "Cold": strengths never change inside a simulated season. ``strengths`` can be one
-rating per team, the same in every simulated season, or one row per simulated season
-(e.g. drawn around the ratings to express uncertainty about team strength, task 1.6
-step c).
+rating per team, the same in every simulated season, or one row per simulated season,
+e.g. from :func:`draw_strengths`, which draws them around the ratings to express the
+uncertainty about how strong each team really is (task 1.6, step c).
 
 Reproducibility: all randomness comes from the ``rng`` passed in, one uniform number per
 simulated season and remaining game, drawn in simulation order. The simulations are run
@@ -155,6 +155,33 @@ def simulate_season(
     w, losses, otl, rw, row = (counts[:, k] for k in range(len(COUNTS)))
     total = points.win * w + points.ot_loss * otl + points.regulation_loss * losses
     return SeasonSims(team_ids, w, losses, otl, rw, row, total.astype(np.int32))
+
+
+def draw_strengths(
+    ratings: ArrayLike, sigma: float, n_sims: int, rng: np.random.Generator
+) -> NDArray[np.float64]:
+    """Each team's strength in each simulated season: its rating plus normal noise.
+
+    Returns ``ratings + sigma * z``, shape ``(n_sims, n_teams)``, with ``z`` standard
+    normal and independent across teams and simulated seasons. Because the draws are ``z``
+    scaled by ``sigma``, the same ``rng`` state moves every team the same way for every
+    ``sigma``, so candidate values of ``sigma`` are compared on the same random numbers.
+
+    Raises:
+        SimulationError: ``sigma`` negative or not finite, ratings not a finite 1-D
+            array, or ``n_sims`` below 1.
+    """
+    if not (np.isfinite(sigma) and sigma >= 0):
+        raise SimulationError(f"sigma must be a finite number >= 0, got {sigma}")
+    if n_sims < 1:
+        raise SimulationError("n_sims must be at least 1")
+    try:
+        r = np.asarray(ratings, dtype=np.float64)
+    except (TypeError, ValueError):
+        raise SimulationError("ratings must be numbers") from None
+    if r.ndim != 1 or not np.isfinite(r).all():
+        raise SimulationError("ratings must be a finite 1-D array")
+    return r + sigma * rng.standard_normal((n_sims, r.size))
 
 
 def _strengths(strengths: ArrayLike, n_teams: int, n_sims: int) -> NDArray[np.float64]:

@@ -11,11 +11,16 @@ that is certain would score infinity, and a silent clip would hide that bug.
 Ordered outcomes (:func:`rps`): one probability per category, in the categories' order
 (e.g. away regulation win, past regulation, home regulation win), and the index of the
 category that happened.
+
+Numeric outcomes predicted by samples (:func:`crps`): e.g. each team's final points in
+every simulated season, against its real final points.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import polars as pl
+from numpy.typing import ArrayLike, NDArray
 
 # Largest allowed difference between a row's probabilities summed and 1.
 SUM_TOLERANCE = 1e-9
@@ -61,6 +66,38 @@ def rps(probabilities: pl.DataFrame, outcome: pl.Series) -> float:
         observed = (outcome <= j).cast(pl.Float64)
         total = total + (cumulative - observed) ** 2
     return float(total.mean()) / (k - 1)
+
+
+def crps(samples: ArrayLike, observed: ArrayLike) -> NDArray[np.float64]:
+    """Continuous ranked probability score of each item's sampled prediction.
+
+    ``samples`` has shape (n_samples, n_items), e.g. simulated seasons x teams, and
+    ``observed`` shape (n_items,). Each item's prediction is the distribution of its
+    samples (all equally likely); with X, X' two independent draws from it and y what
+    happened,
+
+        CRPS = E|X - y| - E|X - X'| / 2.
+
+    It is in the units of the outcome (e.g. points), 0 only for a certain and correct
+    prediction, equals |x - y| for a single sample, and rewards predictions that are both
+    close and honest about their spread. Computed exactly from the sorted samples.
+    """
+    s = np.asarray(samples, dtype=np.float64)
+    y = np.asarray(observed, dtype=np.float64)
+    if s.ndim != 2 or y.shape != (s.shape[1],):
+        raise ValueError(
+            f"need samples of shape (n_samples, n_items) and observed of shape (n_items,), "
+            f"got {s.shape} and {y.shape}"
+        )
+    if s.size == 0:
+        raise ValueError("no samples or no items to score")
+    if not (np.isfinite(s).all() and np.isfinite(y).all()):
+        raise ValueError("samples and observed values must be finite")
+    n = s.shape[0]
+    s = np.sort(s, axis=0)
+    # E|X - X'| = 2 / n^2 * sum_i (2i - n - 1) x_(i) for sorted samples x_(1) <= ... <= x_(n)
+    half_spread = ((2 * np.arange(1, n + 1) - n - 1)[:, None] * s).sum(axis=0) / n**2
+    return np.abs(s - y).mean(axis=0) - half_spread
 
 
 def _check(p: pl.Series, outcome: pl.Series) -> None:

@@ -26,7 +26,7 @@ from nhlsim.models.outcomes import (
     OutcomeParams,
     outcome_probabilities,
 )
-from nhlsim.simulate.season import SeasonSims, SimulationError, simulate_season
+from nhlsim.simulate.season import SeasonSims, SimulationError, draw_strengths, simulate_season
 from nhlsim.simulate.standings import StandingsError
 
 MTL, TOR, BOS = 1, 5, 6
@@ -307,3 +307,43 @@ def test_malformed_played_game_is_refused() -> None:
     )  # 3-3: a tie
     with pytest.raises(StandingsError, match="tied: 2015020001"):
         run(games, REALISTIC)
+
+
+# ---- strength draws (task 1.6, step c) ---------------------------------------------------------
+
+
+def test_draw_strengths_centre_and_spread() -> None:
+    n = 200_000
+    s = draw_strengths(REALISTIC, 40.0, n, np.random.default_rng(3))
+    assert s.shape == (n, 3)
+    assert np.abs(s.mean(axis=0) - REALISTIC).max() < 4 * 40.0 / np.sqrt(n)
+    assert s.std(axis=0) == pytest.approx([40.0] * 3, rel=0.01)
+    assert abs(np.corrcoef(s[:, 0], s[:, 1])[0, 1]) < 0.01  # teams drawn independently
+
+
+def test_draw_strengths_without_spread_are_the_ratings() -> None:
+    s = draw_strengths(REALISTIC, 0.0, 4, np.random.default_rng(3))
+    assert (s == np.array(REALISTIC)).all()
+
+
+def test_every_sigma_uses_the_same_random_numbers() -> None:
+    ten = draw_strengths(REALISTIC, 10.0, 50, np.random.default_rng(9)) - REALISTIC
+    thirty = draw_strengths(REALISTIC, 30.0, 50, np.random.default_rng(9)) - REALISTIC
+    assert thirty == pytest.approx(3 * ten)
+
+
+@pytest.mark.parametrize(
+    ("ratings", "sigma", "n_sims", "message"),
+    [
+        (REALISTIC, -1.0, 5, "sigma must be"),
+        (REALISTIC, float("nan"), 5, "sigma must be"),
+        (REALISTIC, float("inf"), 5, "sigma must be"),
+        (REALISTIC, 10.0, 0, "n_sims"),
+        ([REALISTIC], 10.0, 5, "1-D"),
+        ([0.0, np.nan], 10.0, 5, "finite"),
+        (["a", "b"], 10.0, 5, "numbers"),
+    ],
+)
+def test_draw_strengths_bad_input(ratings, sigma: float, n_sims: int, message: str) -> None:
+    with pytest.raises(SimulationError, match=message):
+        draw_strengths(ratings, sigma, n_sims, np.random.default_rng(1))

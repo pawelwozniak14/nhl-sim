@@ -26,6 +26,12 @@ from nhlsim.models.elo import EloParams, frozen_predictions, run_elo
 
 Score = Callable[[EloParams], float]
 
+#: The settings :func:`tune` chose on the tuning seasons 2017-18 .. 2021-22 (plain Elo
+#: grid, ``scripts/tune_elo.py``; docs/elo/03-tuning-and-evaluation.md, section 5). Their
+#: held-out scores are the published Elo accuracy, so models built on Elo ratings use them
+#: for their own held-out evaluations (the published settings have seen those seasons).
+HELD_OUT_ELO = EloParams(k=9.0, home_advantage=30.0, season_regression=0.2)
+
 
 @dataclass(frozen=True)
 class Grid:

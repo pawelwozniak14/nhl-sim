@@ -10,15 +10,22 @@ RPS, three categories, cumulative predicted F1, F2 and observed O1, O2:
     (0.1, 0.2, 0.7), outcome 2:    (0.1**2 + 0.3**2) / 2 = 0.05
     (0.2, 0.1, 0.7), outcome 2:    (0.2**2 + 0.3**2) / 2 = 0.065 (same p for what happened,
                                    but more weight on the far category costs more)
+CRPS, by the definition E|X - y| - E|X - X'| / 2 over all pairs of samples:
+    samples (1, 2, 3), y = 2:     2/3 - (8/9) / 2 = 2/9
+    samples (0, 10), y = 0 or 5:  5 - 5/2 = 2.5;  y = 20: 15 - 2.5 = 12.5
+    samples 1 .. 20, y = 7.5:     2.125
+    normal with sd 1, y 0.5 from the mean (closed form
+    z(2Φ(z) - 1) + 2φ(z) - 1/sqrt(π)):  0.331404
 """
 
 import math
 from collections.abc import Callable
 
+import numpy as np
 import polars as pl
 import pytest
 
-from nhlsim.evaluate.metrics import brier, log_loss, rps
+from nhlsim.evaluate.metrics import brier, crps, log_loss, rps
 from nhlsim.models.baselines import home_win_rate
 
 
@@ -192,6 +199,61 @@ def test_rps_sum_tolerance() -> None:
     assert rps(three_way((0.1, 0.2, p_home)), categories(2)) == pytest.approx(0.05)
     with pytest.raises(ValueError, match="sum to 1"):
         rps(three_way((0.1, 0.2, 0.7 + 1e-6)), categories(2))
+
+
+# ---- continuous ranked probability score ---------------------------------------------------
+
+
+def test_crps_of_a_single_sample_is_the_distance() -> None:
+    assert crps([[5.0, -1.0]], [3.0, 2.0]).tolist() == pytest.approx([2.0, 3.0])
+
+
+def test_crps_by_hand() -> None:
+    assert crps([[1.0], [2.0], [3.0]], [2.0])[0] == pytest.approx(2 / 9)
+    two = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 10.0]])
+    assert crps(two, [0.0, 5.0, 20.0]).tolist() == pytest.approx([2.5, 2.5, 12.5])
+    one_to_twenty = np.arange(1.0, 21.0)[:, None]
+    assert crps(one_to_twenty, [7.5])[0] == pytest.approx(2.125)
+
+
+def test_crps_certain_and_correct_is_zero() -> None:
+    assert crps(np.full((4, 1), 7.0), [7.0])[0] == 0.0
+
+
+def test_crps_ignores_sample_order() -> None:
+    samples = np.array([[3.0, 1.0], [1.0, 9.0], [2.0, 4.0]])
+    reordered = samples[[2, 0, 1]]
+    assert crps(reordered, [2.0, 5.0]).tolist() == pytest.approx(crps(samples, [2.0, 5.0]).tolist())
+
+
+def test_crps_of_a_large_normal_sample_matches_the_closed_form() -> None:
+    samples = np.random.default_rng(7).standard_normal((200_000, 1))
+    assert crps(samples, [0.5])[0] == pytest.approx(0.331404, abs=0.003)
+
+
+def test_crps_rewards_honest_spread() -> None:
+    # outcomes really drawn with sd 10: predicting sd 10 beats sd 2 and sd 30 on average
+    rng = np.random.default_rng(8)
+    observed = rng.normal(0, 10, 500)
+    z = np.tile(rng.standard_normal((1_000, 1)), (1, 500))  # the same prediction for each
+    scores = {sd: crps(z * sd, observed).mean() for sd in (2.0, 10.0, 30.0)}
+    assert scores[10.0] < scores[2.0] and scores[10.0] < scores[30.0]
+
+
+@pytest.mark.parametrize(
+    ("samples", "observed", "message"),
+    [
+        (np.ones(3), np.ones(3), r"shape \(n_samples, n_items\)"),
+        (np.ones((3, 2)), np.ones(3), r"got \(3, 2\) and \(3,\)"),
+        (np.ones((0, 2)), np.ones(2), "no samples"),
+        (np.ones((3, 0)), np.ones(0), "no samples"),
+        (np.array([[1.0], [np.nan]]), np.ones(1), "finite"),
+        (np.ones((2, 1)), np.array([np.inf]), "finite"),
+    ],
+)
+def test_crps_bad_input(samples: np.ndarray, observed: np.ndarray, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        crps(samples, observed)
 
 
 # ---- baselines ------------------------------------------------------------------------------

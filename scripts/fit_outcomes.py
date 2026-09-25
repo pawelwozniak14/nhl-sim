@@ -10,10 +10,11 @@ pre-game Elo rating difference d. It is fitted on daily Elo predictions (ratings
 through the previous game) and scored on both daily and frozen predictions (opening-day
 ratings, as in the preseason projection).
 
-Default: the Elo settings tuned on 2017-18 .. 2021-22 (HELD_OUT_ELO, as found by
-scripts/tune_elo.py), the outcome model fitted on those tuning seasons, then scored on
-the tuning seasons (in-sample) and the held-out seasons 2022-23 .. 2025-26. Held-out
-results are reported only; no choice is made from them.
+Default: the Elo settings tuned on 2017-18 .. 2021-22 (HELD_OUT_ELO in
+nhlsim.evaluate.elo_tuning, as found by scripts/tune_elo.py), the outcome model fitted
+on those tuning seasons, then scored on the tuning seasons (in-sample) and the held-out
+seasons 2022-23 .. 2025-26. Held-out results are reported only; no choice is made from
+them.
 
 ``--final`` uses the published Elo settings (config/elo.yaml), fits the outcome model on
 every season after the warm-up and prints the parameters as YAML for
@@ -31,6 +32,7 @@ from pathlib import Path
 
 import polars as pl
 
+from nhlsim.evaluate.elo_tuning import HELD_OUT_ELO
 from nhlsim.evaluate.outcomes import (
     outcome_games,
     outcome_shares,
@@ -43,10 +45,6 @@ from nhlsim.models.elo import EloParams, frozen_predictions, load_elo_config, ru
 from nhlsim.models.outcomes import OutcomeFit, fit_outcomes
 
 REPO = Path(__file__).resolve().parents[1]
-
-# Chosen by scripts/tune_elo.py on 2017-18 .. 2021-22 (docs/elo/03-tuning-and-evaluation.md,
-# section 5): the settings whose held-out scores are the published Elo accuracy.
-HELD_OUT_ELO = EloParams(k=9.0, home_advantage=30.0, season_regression=0.2)
 
 
 def main(argv: list[str] | None = None) -> int:
