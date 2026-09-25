@@ -30,3 +30,6 @@ odds. Built on the Elo ratings above (task 1.6, in progress).
 1. [How games end](simulator/01-outcome-split.md): the model that splits each game
    into regulation, overtime and shootout wins for either side, how it was fitted,
    and how well it predicts.
+2. [Simulated seasons](simulator/02-season-simulation.md): how a season is simulated,
+   why the simulator must be unsure of each team's strength, how that uncertainty was
+   tuned on replayed past preseasons, and the 2026-27 preview.

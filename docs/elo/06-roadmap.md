@@ -20,26 +20,21 @@ beats constant outcome shares on the held-out seasons and ties a simpler split o
 Elo's win probability. The full description, fit and evaluation are in
 [simulator part 1](../simulator/01-outcome-split.md).
 
-**The simulator.** Starting from the 2026-27 opening ratings, simulate the whole
-season many times over, counting wins, losses, overtime losses, regulation wins and
-points for every team. The plan is to simulate 50,000 seasons if the running time
-allows (the random error on a 50% probability is then about ±0.2 percentage
-points), with 10,000 as a minimum.
-
-**Uncertainty about team strength (σ).** Simulating every season from fixed opening
-ratings would treat them as exactly right, and preseason odds would come out too
-confident. 2025-26 showed how wrong opening ratings can be (part 3, section 8). So
-each simulated season will first draw every team's strength around its rating, with
-a spread σ. σ will be tuned so that historical preseason projections produce
-final-points ranges with the right coverage: the 90% range should contain the real
-result about 90% of the time. The version without σ will be reported alongside, to
-show what σ is worth.
+**The simulator and uncertainty about team strength (σ)** (done, September 2026).
+The season is simulated 50,000 times (about 20 seconds). Each simulated season first
+draws every team's strength around its opening rating with a spread σ, because fixed
+ratings made preseason ranges far too narrow: their 90% ranges held the real final
+points of only 68% of teams in replayed past preseasons. σ was tuned on those replays
+by CRPS of final points; the published σ = 45 rating points gives ranges with the
+right coverage, and held-out seasons confirmed it. The full description is in
+[simulator part 2](../simulator/02-season-simulation.md).
 
 **Frozen game probabilities.** The preseason freeze will publish a probability for
 every game. They can come either straight from the opening ratings (as in part 2,
-section 9) or as averages over the simulated seasons, which are pulled slightly
-toward 50% by the uncertainty about strength, more so for games late in the season.
-The choice will be made by comparing both on past seasons.
+section 9) or as averages over the simulated seasons, which the uncertainty about
+strength pulls slightly toward 50%. With strengths fixed within each simulated season,
+that pull is the same for every game, early or late. The choice will be made by
+comparing both on past seasons.
 
 **Tiebreakers and playoff seeding** (task 1.4). Before the freeze, ties in the
 simulated standings will be broken by points, regulation wins, regulation plus
