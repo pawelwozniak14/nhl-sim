@@ -12,7 +12,7 @@ config/
 src/nhlsim/
   models/elo.py                ratings, updates, frozen predictions, config loader
   models/baselines.py          home-win-rate baseline
-  evaluate/metrics.py          log loss, Brier score
+  evaluate/metrics.py          log loss, Brier score (and the RPS used by the outcome model)
   evaluate/elo_tuning.py       objectives, alternating search, score tables
   ingest/franchises.py         team IDs -> franchise lineage
   ingest/results.py            loading verified results, adding lineage IDs
@@ -122,7 +122,9 @@ that dependencies point one way: models may use config, not the reverse.
 **`nhlsim.evaluate.metrics`.** `log_loss(p, outcome)` and `brier(p, outcome)` on a
 float Series of probabilities and a boolean Series of outcomes. Both reject
 mismatched lengths, empty input, missing values, NaN or infinity and wrong types;
-log loss also rejects probabilities of exactly 0 or 1 (part 4, decision 15).
+log loss also rejects probabilities of exactly 0 or 1 (part 4, decision 15). The
+module also has `rps`, the ranked probability score used to score the outcome model
+([simulator part 1](../simulator/01-outcome-split.md)).
 
 **`nhlsim.models.baselines`.** `home_win_rate(games)`: the share of played games won
 by the home team, learned from whatever games it is given. Callers must pass only
@@ -206,13 +208,13 @@ league mean is exactly 1500. Options: `--config`, `--elo`, `--results`, `--teams
 
 ## 8. Tests
 
-118 of the project's 257 tests cover the Elo model and its evaluation:
+These four files hold 159 of the project's 402 tests (September 2026):
 
 | File | Tests | Covers |
 |---|---|---|
-| `test_elo.py` | 66 | Updates, home advantage, both variants, zero sum, no leakage, time order, unplayed games, the between-season pull, expansion teams, Arizona → Utah, frozen predictions, opening ratings, input and settings validation, the real `config/elo.yaml` |
-| `test_elo_tuning.py` | 20 | Both objectives on real games, score and calibration tables, the search (separate minima, alternating convergence, non-convergence, ties, grid edges) |
-| `test_metrics.py` | 27 | Log loss and Brier by hand, input validation, the home-rate baseline |
+| `test_elo.py` | 78 | Updates, home advantage, both variants, zero sum, no leakage, time order, unplayed games, the between-season pull, expansion teams, Arizona → Utah, frozen predictions (including malformed results and duplicate opening ratings), opening ratings, input and settings validation, the real `config/elo.yaml` |
+| `test_elo_tuning.py` | 22 | Both objectives on real games, score and calibration tables, seasons with no games refused, the search (separate minima, alternating convergence, non-convergence, ties, grid edges) |
+| `test_metrics.py` | 54 | Log loss and Brier by hand, input validation, the home-rate baseline; 27 of them cover the ranked probability score used by the outcome model |
 | `test_lineage.py` | 5 | Lineage mapping and its failure cases |
 
 Principles:

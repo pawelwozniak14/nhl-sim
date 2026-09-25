@@ -21,3 +21,12 @@ The first model in the project and the baseline every later model must beat.
    and how to reproduce every number.
 6. [Roadmap and limitations](elo/06-roadmap.md): what is planned next, the ideas not
    yet tested, and what the model cannot capture.
+
+## Season simulator
+
+How single-game predictions become simulated seasons: standings, points and playoff
+odds. Built on the Elo ratings above (task 1.6, in progress).
+
+1. [How games end](simulator/01-outcome-split.md): the model that splits each game
+   into regulation, overtime and shootout wins for either side, how it was fitted,
+   and how well it predicts.

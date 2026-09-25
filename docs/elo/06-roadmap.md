@@ -10,20 +10,15 @@ The Elo model gives one number per game: the probability that the home team wins
 The season simulator (task 1.6) needs more, and these are the next pieces of work,
 in order.
 
-**How games are won.** Standings depend on *how* a game ends: a regulation win is
-the first tiebreaker, and a loss in overtime or a shootout still earns a point. The
-plan is a small model on top of the Elo rating difference, with three ordered
-outcomes: away regulation win, game goes past regulation, home regulation win. This
-kind of model, an *ordered logit*, has only three parameters here, and because the
-outcomes are ordered, a bigger mismatch automatically means fewer overtimes: with
-one slope, the model imposes that pattern, so the fit can't test it. It will be
-checked separately, by comparing the model's overtime rate with the observed rate
-in bins of rating difference; if they disagree, the middle outcome gets its own
-slope. Games that go past regulation then split into overtime and shootout
-(about two-thirds end in overtime); the overtime winner is tilted by team strength,
-and the shootout is close to a coin flip, as the data showed (part 4, decision 6).
-It will be fitted on the tuning seasons and scored on the held-out seasons with the
-ranked probability score, the three-outcome version of the Brier score.
+**How games are won** (done, September 2026). Standings depend on *how* a game
+ends: a regulation win is the first tiebreaker, and a loss in overtime or a shootout
+still earns a point. A small model on top of the Elo rating difference now splits
+every game into six outcomes: an ordered logit for regulation (away win, past
+regulation, home win), a constant share of games past regulation decided in the
+overtime period, an overtime winner tilted by strength, and a coin-flip shootout. It
+beats constant outcome shares on the held-out seasons and ties a simpler split of
+Elo's win probability. The full description, fit and evaluation are in
+[simulator part 1](../simulator/01-outcome-split.md).
 
 **The simulator.** Starting from the 2026-27 opening ratings, simulate the whole
 season many times over, counting wins, losses, overtime losses, regulation wins and
