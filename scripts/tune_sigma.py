@@ -14,6 +14,9 @@ team-seasons; coverage of the 50/80/90% ranges is reported as the check.
 Default: Elo settings and outcome model tuned or fitted on 2017-18 .. 2021-22
 (HELD_OUT_ELO; the outcome model refitted here), sigma chosen on those seasons, then the
 held-out seasons 2022-23 .. 2025-26 scored at the chosen sigma and at sigma 0 (report only).
+It ends by comparing, on both sets of seasons, three candidate game probabilities for a
+preseason freeze (Elo's formula, the outcome model, the outcome model averaged over the
+uncertainty about strength at the chosen sigma; task 1.6 d).
 
 ``--final`` uses the published settings (config/elo.yaml, config/outcomes.yaml), chooses
 sigma on every season after the warm-up and prints config/model.yaml. It refuses to
@@ -33,11 +36,11 @@ import polars as pl
 
 from nhlsim.config import Points, load_standings_exceptions
 from nhlsim.evaluate.elo_tuning import HELD_OUT_ELO
-from nhlsim.evaluate.outcomes import outcome_games
+from nhlsim.evaluate.outcomes import frozen_game_scores, outcome_games
 from nhlsim.evaluate.preseason import best_sigma, replay_scores, replay_season, sigma_curve
 from nhlsim.ingest.results import load_results
 from nhlsim.io import use_utf8_output
-from nhlsim.models.elo import EloParams, load_elo_config, run_elo
+from nhlsim.models.elo import EloParams, frozen_predictions, load_elo_config, run_elo
 from nhlsim.models.outcomes import (
     OutcomeConfig,
     OutcomeFitInfo,
@@ -141,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
             ]  # fmt: skip
             print(f"\n=== {label}, sigma {s:g} ===")
             print(replay_scores(replays))
+
+    frozen = outcome_games(frozen_predictions(results, run.season_start, elo), results, elo)
+    params = outcomes.params_for(elo)
+    for label, seasons in (("TUNING", tuning), ("HELD-OUT", held_out)):
+        print(f"\n=== Frozen game probabilities, {label} seasons (averaged: sigma {sigma:g}) ===")
+        with pl.Config(float_precision=5):  # the candidates differ in the 4th decimal
+            print(frozen_game_scores(frozen, params, sigma, seasons))
     return 0
 
 

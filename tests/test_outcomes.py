@@ -37,6 +37,7 @@ from nhlsim.models.outcomes import (
     OutcomeConfig,
     OutcomeError,
     OutcomeParams,
+    averaged_outcome_probabilities,
     fit_outcomes,
     load_outcome_config,
     outcome_index,
@@ -507,3 +508,80 @@ def test_loader_rejects_non_mapping(tmp_path: Path) -> None:
     p.write_text("- just\n- a list\n", encoding="utf-8")
     with pytest.raises(TypeError, match="mapping"):
         load_outcome_config(p)
+
+
+# ---- averaged over the uncertainty about strength (task 1.6 d) -------------------------------
+
+SYMMETRIC = OutcomeParams(
+    cut_away=-0.5, cut_home=0.5, slope=0.005, ot_share=0.65, ot_intercept=0.0, ot_slope=0.004
+)
+
+
+def test_averaged_without_uncertainty_is_the_plain_model() -> None:
+    d = np.array([-120.0, 0.0, 35.5, 250.0])
+    assert averaged_outcome_probabilities(d, PARAMS, 0.0) == pytest.approx(
+        outcome_probabilities(d, PARAMS), abs=1e-14
+    )
+
+
+def test_averaged_with_two_nodes_by_hand() -> None:
+    # two Gauss-Hermite nodes are z = -1 and +1 with equal weights: the average of the
+    # plain model at d - sigma*sqrt(2) and d + sigma*sqrt(2)
+    shift = 30.0 * np.sqrt(2)
+    low = outcome_probabilities(50.0 - shift, PARAMS)
+    high = outcome_probabilities(50.0 + shift, PARAMS)
+    got = averaged_outcome_probabilities(50.0, PARAMS, 30.0, nodes=2)
+    assert got == pytest.approx((low + high) / 2, abs=1e-15)
+
+
+def test_averaged_shape_and_sums() -> None:
+    p = averaged_outcome_probabilities(np.linspace(-300, 300, 12).reshape(3, 4), REALISTIC, 45.0)
+    assert p.shape == (3, 4, 6)
+    assert p.sum(axis=-1) == pytest.approx(np.ones((3, 4)), abs=1e-14)
+    assert (p > 0).all()
+
+
+def test_averaged_matches_a_monte_carlo_average() -> None:
+    # the strength difference varies with spread sigma * sqrt(2): two independent teams
+    rng = np.random.default_rng(11)
+    diffs = 80.0 + 45.0 * (rng.standard_normal(400_000) - rng.standard_normal(400_000))
+    samples = outcome_probabilities(diffs, REALISTIC)
+    mean, se = samples.mean(axis=0), samples.std(axis=0) / np.sqrt(len(diffs))
+    exact = averaged_outcome_probabilities(80.0, REALISTIC, 45.0)
+    assert (np.abs(exact - mean) < 4 * se).all()
+
+
+def test_averaged_is_pulled_toward_the_middle() -> None:
+    point = outcome_probabilities(150.0, REALISTIC)
+    averaged = averaged_outcome_probabilities(150.0, REALISTIC, 45.0)
+    assert averaged[5] < point[5] and averaged[0] > point[0]
+
+
+def test_averaged_keeps_the_symmetry() -> None:
+    d = np.array([0.0, 40.0, 130.0])
+    p = averaged_outcome_probabilities(d, SYMMETRIC, 50.0)
+    mirrored = averaged_outcome_probabilities(-d, SYMMETRIC, 50.0)
+    assert p == pytest.approx(mirrored[:, ::-1], abs=1e-14)
+
+
+def test_averaged_needs_few_nodes() -> None:
+    d = np.linspace(-400, 400, 41)
+    assert averaged_outcome_probabilities(d, REALISTIC, 100.0) == pytest.approx(
+        averaged_outcome_probabilities(d, REALISTIC, 100.0, nodes=200), abs=1e-13
+    )
+
+
+@pytest.mark.parametrize(
+    ("sigma", "nodes", "d", "message"),
+    [
+        (-1.0, 40, 0.0, "sigma must be"),
+        (math.nan, 40, 0.0, "sigma must be"),
+        (math.inf, 40, 0.0, "sigma must be"),
+        (45.0, 0, 0.0, "nodes"),
+        (45.0, 40, math.nan, "finite"),
+        (45.0, 40, "a", "numbers"),
+    ],
+)
+def test_averaged_bad_input(sigma: float, nodes: int, d: float, message: str) -> None:
+    with pytest.raises(OutcomeError, match=message):
+        averaged_outcome_probabilities(d, PARAMS, sigma, nodes=nodes)

@@ -28,6 +28,7 @@ from nhlsim.models.outcomes import (
     OutcomeError,
     OutcomeFitInfo,
     OutcomeParams,
+    averaged_outcome_probabilities,
     outcome_probabilities,
 )
 from nhlsim.simulate.season import (
@@ -450,3 +451,21 @@ def test_projection_rngs() -> None:
     assert games.random() == np.random.default_rng([202627, 20262027, 1]).random()
     other_season = projection_rngs(202627, 20252026)[0]
     assert other_season.random() != np.random.default_rng([202627, 20262027, 0]).random()
+
+
+def test_simulated_frequencies_match_the_averaged_probabilities() -> None:
+    # one game, strengths drawn with spread sigma: outcome shares over many simulated
+    # seasons equal the outcome model averaged over the strength uncertainty
+    n, sigma = 40_000, 100.0
+    games = season().filter(pl.col("game_id") == 2015020001)  # TOR hosts MTL
+    ratings = [1450.0, 1600.0, 1500.0]  # MTL, TOR, BOS
+    strengths = draw_strengths(ratings, sigma, n, np.random.default_rng(5))
+    sims = run(games, strengths, n_sims=n, seed=6)
+    home, away = record(sims, TOR), record(sims, MTL)
+    shares = np.array([
+        away["rw"], away["row"] - away["rw"], away["w"] - away["row"],
+        home["w"] - home["row"], home["row"] - home["rw"], home["rw"],
+    ]).mean(axis=1)  # fmt: skip
+    expected = averaged_outcome_probabilities(1600.0 + 27.5 - 1450.0, PARAMS, sigma)
+    se = np.sqrt(expected * (1 - expected) / n)
+    assert (np.abs(shares - expected) < 4 * se).all()

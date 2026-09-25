@@ -211,6 +211,37 @@ def outcome_probabilities(d: ArrayLike, params: OutcomeParams) -> NDArray[np.flo
     )
 
 
+def averaged_outcome_probabilities(
+    d: ArrayLike, params: OutcomeParams, sigma: float, *, nodes: int = 40
+) -> NDArray[np.float64]:
+    """Outcome probabilities averaged over the uncertainty about both teams' strengths.
+
+    In the season simulator each team's strength is its rating plus independent normal
+    noise with standard deviation ``sigma`` (``draw_strengths``), so a game's rating
+    difference is ``d + sigma * sqrt(2) * z`` with ``z`` standard normal. This returns the
+    expectation of :func:`outcome_probabilities` over ``z``: the probability of each
+    outcome that the simulated seasons produce on average. Summed over a team's games, the
+    probabilities of its wins give its expected wins in the simulator.
+
+    Computed by Gauss-Hermite quadrature with ``nodes`` points: with the default 40, the
+    result agrees with 200 points to rounding error (about 1e-15) for ``sigma`` up to 100
+    rating points (3e-10 at 200). ``sigma`` 0 gives :func:`outcome_probabilities`.
+
+    Raises:
+        OutcomeError: ``sigma`` negative or not finite, ``nodes`` below 1, or a
+            non-finite ``d``.
+    """
+    if not (np.isfinite(sigma) and sigma >= 0):
+        raise OutcomeError(f"sigma must be a finite number >= 0, got {sigma}")
+    if nodes < 1:
+        raise OutcomeError("nodes must be at least 1")
+    d = _finite(d)
+    z, w = np.polynomial.hermite_e.hermegauss(nodes)  # weight exp(-z^2 / 2)
+    w = w / w.sum()
+    p = outcome_probabilities(d[..., None] + sigma * np.sqrt(2) * z, params)
+    return (p * w[:, None]).sum(axis=-2)
+
+
 def three_way(probabilities: ArrayLike) -> NDArray[np.float64]:
     """Collapse six-outcome probabilities to the :data:`THREE_WAY` results (last axis)."""
     p = np.asarray(probabilities, dtype=np.float64)

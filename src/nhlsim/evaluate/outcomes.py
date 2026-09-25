@@ -30,6 +30,7 @@ from nhlsim.models.elo import EloParams
 from nhlsim.models.outcomes import (
     OUTCOMES,
     OutcomeParams,
+    averaged_outcome_probabilities,
     outcome_index,
     outcome_probabilities,
     three_way,
@@ -164,7 +165,59 @@ def past_regulation_calibration(
     )
 
 
+def frozen_game_scores(
+    games: pl.DataFrame, params: OutcomeParams, sigma: float, seasons: Iterable[int]
+) -> pl.DataFrame:
+    """Per-season and pooled scores of three candidate game probabilities for a freeze.
+
+    ``games`` (:data:`OUTCOME_GAMES_SCHEMA`) come from frozen predictions, so ``d`` and
+    ``p_home`` use opening-day ratings. The candidates:
+
+    - **elo**: Elo's own home win probability ``p_home``;
+    - **point**: the outcome model at ``d``;
+    - **averaged**: the outcome model averaged over the uncertainty about strength
+      (:func:`~nhlsim.models.outcomes.averaged_outcome_probabilities` with ``sigma``),
+      i.e. what the simulated seasons produce on average.
+
+    Columns: season (``"all"`` for the pooled row), games, log_loss_elo, log_loss_point,
+    log_loss_averaged (home win or not), log_loss6_point, log_loss6_averaged (six
+    outcomes), rps_point, rps_averaged (three-way result).
+
+    Raises ``ValueError`` if any requested season has no games.
+    """
+    wanted, chosen = _games_in(games, seasons)
+    groups = [(str(s), chosen.filter(pl.col("season_id") == s)) for s in wanted]
+    rows = []
+    for label, df in [*groups, ("all", chosen)]:
+        n = df.height
+        index = df["outcome"].to_numpy()
+        home_won = df["home_won"].to_numpy()
+        three = pl.Series(_THREE_WAY_OF[index])
+        d = df["d"].to_numpy()
+        candidates = {
+            "point": outcome_probabilities(d, params),
+            "averaged": averaged_outcome_probabilities(d, params, sigma),
+        }
+        row = {
+            "season": label,
+            "games": n,
+            "log_loss_elo": _binary_log_loss(df["p_home"].to_numpy(), home_won),
+        }
+        for name, probs in candidates.items():
+            row[f"log_loss_{name}"] = _binary_log_loss(probs[:, 3:].sum(axis=1), home_won)
+        for name, probs in candidates.items():
+            row[f"log_loss6_{name}"] = _log_loss(probs[np.arange(n), index])
+        for name, probs in candidates.items():
+            row[f"rps_{name}"] = rps(_frame(three_way(probs)), three)
+        rows.append(row)
+    return pl.DataFrame(rows)
+
+
 # ---- helpers ------------------------------------------------------------------------------
+
+
+def _binary_log_loss(p_home: np.ndarray, home_won: np.ndarray) -> float:
+    return _log_loss(np.where(home_won, p_home, 1 - p_home))
 
 
 def _scores(label: str, df: pl.DataFrame, params: OutcomeParams, shares: Shares) -> dict:

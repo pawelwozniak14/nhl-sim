@@ -32,12 +32,14 @@ The model's home win probability: 0.496024 at d = 0, 0.626709 at d = 100.
 
 from datetime import UTC, date, datetime
 
+import numpy as np
 import polars as pl
 import pytest
 
 from nhlsim.evaluate.outcomes import (
     OUTCOME_GAMES_SCHEMA,
     Shares,
+    frozen_game_scores,
     outcome_games,
     outcome_shares,
     past_regulation_calibration,
@@ -45,7 +47,7 @@ from nhlsim.evaluate.outcomes import (
 )
 from nhlsim.ingest.results import RESULTS_SCHEMA
 from nhlsim.models.elo import EloParams, frozen_predictions, run_elo
-from nhlsim.models.outcomes import OutcomeParams
+from nhlsim.models.outcomes import OutcomeParams, averaged_outcome_probabilities
 
 PARAMS = OutcomeParams(
     cut_away=-0.5, cut_home=0.5, slope=0.005, ot_share=0.65, ot_intercept=-0.1, ot_slope=0.004
@@ -257,3 +259,52 @@ def test_past_regulation_calibration() -> None:
 def test_calibration_needs_a_positive_bin_width() -> None:
     with pytest.raises(ValueError, match="bin_width"):
         past_regulation_calibration(GAMES, PARAMS, [20222023], bin_width=0.0)
+
+
+# ---- frozen game probabilities (task 1.6 d) ---------------------------------------------------
+
+# By hand (math module): the model's home win probability is 0.496023 at d = 0 and 0.626710
+# at d = 100. Game 1 (home won, Elo 0.54), game 2 (home lost, Elo 0.64), game 3 (home won,
+# Elo 0.50):
+#   Elo log loss per game:   -ln 0.54 = 0.616186, -ln 0.36 = 1.021651, -ln 0.5 = 0.693147
+#   model log loss per game: -ln 0.496023 = 0.701132, -ln 0.373290 = 0.985399, 0.701132
+ELO_LL = [0.616186139423817, 1.0216512475319814, 0.6931471805599453]
+POINT_LL = [0.7011322061315649, 0.9853987913227393, 0.7011322061315649]
+
+
+def test_frozen_game_scores_by_hand() -> None:
+    t = frozen_game_scores(GAMES, PARAMS, 0.0, [20232024, 20222023])
+    assert t["season"].to_list() == ["20222023", "20232024", "all"]
+    assert t["games"].to_list() == [2, 1, 3]
+    rows = [slice(0, 2), slice(2, 3), slice(0, 3)]
+    for column, per_game in [
+        ("log_loss_elo", ELO_LL),
+        ("log_loss_point", POINT_LL),
+        ("log_loss6_point", LOG_LOSS),
+        ("rps_point", RPS),
+    ]:
+        expected = [_mean(per_game, r) for r in rows]
+        assert t[column].to_list() == pytest.approx(expected, abs=2e-6), column
+
+
+def test_frozen_averaged_without_uncertainty_equals_point() -> None:
+    t = frozen_game_scores(GAMES, PARAMS, 0.0, [20222023, 20232024])
+    for kind in ("log_loss", "log_loss6", "rps"):
+        assert t[f"{kind}_averaged"].to_list() == pytest.approx(t[f"{kind}_point"].to_list())
+
+
+def test_frozen_averaged_uses_the_averaged_probabilities() -> None:
+    t = frozen_game_scores(GAMES, PARAMS, 60.0, [20222023, 20232024])
+    p = averaged_outcome_probabilities(GAMES["d"].to_numpy(), PARAMS, 60.0)
+    home = p[:, 3:].sum(axis=1)
+    won = GAMES["home_won"].to_numpy()
+    per_game = -np.log(np.where(won, home, 1 - home))
+    six = -np.log(p[np.arange(3), GAMES["outcome"].to_numpy()])
+    assert t["log_loss_averaged"].to_list()[-1] == pytest.approx(per_game.mean())
+    assert t["log_loss6_averaged"].to_list()[-1] == pytest.approx(six.mean())
+    assert t["log_loss_averaged"].to_list()[-1] != pytest.approx(t["log_loss_point"][-1])
+
+
+def test_frozen_game_scores_need_games_in_every_season() -> None:
+    with pytest.raises(ValueError, match=r"no games in seasons \[20242025\]"):
+        frozen_game_scores(GAMES, PARAMS, 45.0, [20222023, 20242025])
