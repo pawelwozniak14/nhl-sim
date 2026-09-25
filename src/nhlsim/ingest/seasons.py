@@ -72,6 +72,19 @@ _RECORD_FIELDS = {
 }
 
 
+STANDINGS_RANKS_SCHEMA: dict[str, pl.DataType] = {
+    "season_id": pl.Int64(),
+    "abbrev": pl.String(),
+    "conference": pl.String(),  # abbreviation, e.g. "E"; null when not in use (2020-21)
+    "division": pl.String(),  # abbreviation, e.g. "A"
+    "division_rank": pl.Int64(),
+    "conference_rank": pl.Int64(),  # plain standings order; null when not in use
+    "league_rank": pl.Int64(),
+    "wildcard_rank": pl.Int64(),  # null for teams placed by division, or no wild card
+    "clinch": pl.String(),  # e.g. x, y, z, p, e; null when the API gives none
+}
+
+
 class SeasonDataError(ValueError):
     """Season or standings data is missing fields or inconsistent."""
 
@@ -150,6 +163,37 @@ def parse_standings_records(payload: Mapping[str, Any], season_id: int) -> pl.Da
         c: pl.Int64() for c in _RECORD_FIELDS
     }
     return pl.DataFrame(rows, schema=schema, orient="row").sort("season_id", "abbrev")
+
+
+def parse_standings_ranks(payload: Mapping[str, Any], season_id: int) -> pl.DataFrame:
+    """The NHL's own standings order from a ``/v1/standings/{date}`` response.
+
+    One row per team (:data:`STANDINGS_RANKS_SCHEMA`): its position in its division,
+    conference and the league, and its wild-card position. The API gives position 0 where
+    a ranking doesn't apply (wild cards for teams placed by their division, or in seasons
+    without wild cards; conferences in seasons without them); those become null.
+    """
+    rows = []
+    for r in _require(payload, "standings", "standings response"):
+        abbrev = _require(_require(r, "teamAbbrev", "standings row"), "default", "teamAbbrev")
+        where = f"standings row {abbrev}"
+        if (sid := _require(r, "seasonId", where)) != season_id:
+            raise SeasonDataError(f"{where} is from season {sid}, not {season_id}")
+        wildcard = _require(r, "wildcardSequence", where)
+        rows.append(
+            {
+                "season_id": sid,
+                "abbrev": abbrev,
+                "conference": r.get("conferenceAbbrev"),
+                "division": _require(r, "divisionAbbrev", where),
+                "division_rank": _require(r, "divisionSequence", where),
+                "conference_rank": _require(r, "conferenceSequence", where) or None,
+                "league_rank": _require(r, "leagueSequence", where),
+                "wildcard_rank": wildcard or None,
+                "clinch": r.get("clinchIndicator"),
+            }
+        )
+    return pl.DataFrame(rows, schema=STANDINGS_RANKS_SCHEMA, orient="row").sort("abbrev")
 
 
 def fetch_final_standings(

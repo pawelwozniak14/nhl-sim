@@ -19,8 +19,10 @@ from nhlsim.ingest.nhl_api import NHLClient
 from nhlsim.ingest.seasons import (
     SEASON_TEAMS_SCHEMA,
     SEASONS_SCHEMA,
+    STANDINGS_RANKS_SCHEMA,
     SeasonDataError,
     fetch_season_teams,
+    parse_standings_ranks,
     parse_standings_seasons,
     parse_standings_teams,
     seasons_between,
@@ -188,3 +190,42 @@ def test_fetch_season_teams_uses_final_standings_date(
 def test_fetch_season_teams_unknown_season(tmp_path: Path, seasons: pl.DataFrame) -> None:
     with NHLClient(tmp_path) as client, pytest.raises(SeasonDataError, match="not in the seasons"):
         fetch_season_teams(client, seasons, 20302031)
+
+
+# ---- the NHL's standings order ------------------------------------------------------------
+
+
+def ranks_of(df: pl.DataFrame, abbrev: str) -> tuple:
+    r = df.filter(pl.col("abbrev") == abbrev).row(0, named=True)
+    return (r["conference"], r["division"], r["division_rank"], r["conference_rank"],
+            r["league_rank"], r["wildcard_rank"], r["clinch"])  # fmt: skip
+
+
+def test_standings_ranks_2015_16() -> None:
+    df = parse_standings_ranks(load("standings_20160410_excerpt"), 20152016)
+    assert df.schema == pl.Schema(STANDINGS_RANKS_SCHEMA)
+    assert ranks_of(df, "ARI") == ("W", "P", 4, 10, 24, 4, None)
+    assert ranks_of(df, "TOR") == ("E", "A", 8, 16, 30, 10, None)
+    assert ranks_of(df, "WPG") == ("W", "C", 7, 11, 25, 5, None)
+
+
+def test_standings_ranks_without_conferences_or_wild_cards_2020_21() -> None:
+    # the API gives conference and wild-card position 0 when they aren't in use
+    df = parse_standings_ranks(load("standings_20210519_excerpt"), 20202021)
+    assert ranks_of(df, "ARI") == (None, "WST", 5, None, 22, None, None)
+    assert ranks_of(df, "TOR") == (None, "NTH", 1, None, 6, None, "y")
+    assert ranks_of(df, "VGK") == (None, "WST", 2, None, 2, None, "x")
+
+
+def test_standings_ranks_2025_26_complete() -> None:
+    df = parse_standings_ranks(load("standings_20260417"), 20252026)
+    assert df.height == 32
+    assert ranks_of(df, "COL") == ("W", "C", 1, 1, 1, None, "p")
+    assert ranks_of(df, "BOS") == ("E", "A", 4, 5, 8, 1, "x")  # a wild card
+    assert ranks_of(df, "PIT") == ("E", "M", 2, 7, 10, None, "x")  # below BOS, but by division
+    assert sorted(df["clinch"].unique().to_list()) == ["e", "p", "x", "y", "z"]
+
+
+def test_standings_ranks_rejects_wrong_season() -> None:
+    with pytest.raises(SeasonDataError, match="not 20162017"):
+        parse_standings_ranks(load("standings_20160410_excerpt"), 20162017)

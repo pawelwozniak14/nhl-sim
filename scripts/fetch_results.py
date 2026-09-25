@@ -11,8 +11,11 @@ never overwrites the files of a full run) plus teams.parquet (the whole team lis
 Every season is checked before anything is written: the result checks, then each team's
 record (W, L, OTL, points, RW, ROW, SO W/L, GF, GA) recomputed from our games must equal
 the NHL's official final standings, after applying the documented exceptions in
-config/standings_exceptions.yaml. Problems in any season are all reported, and the
-script exits with status 1 without writing files.
+config/standings_exceptions.yaml. For seasons played under today's tiebreakers and
+format (regulation wins first, wild cards, conferences: 2021-22 on, by the API's season
+flags), our standings order (division, conference, league and wild-card positions, see
+nhlsim.simulate.tiebreakers) must also equal the NHL's. Problems in any season are all
+reported, and the script exits with status 1 without writing files.
 """
 
 from __future__ import annotations
@@ -38,15 +41,20 @@ from nhlsim.ingest.seasons import (
     STANDINGS_SEASON_URL,
     SeasonDataError,
     fetch_final_standings,
+    parse_standings_ranks,
     parse_standings_records,
     parse_standings_seasons,
     seasons_between,
 )
 from nhlsim.io import use_utf8_output, write_parquet_atomic
 from nhlsim.simulate.standings import StandingsError, compare_records, team_records
+from nhlsim.simulate.tiebreakers import TiebreakError, compare_ranks, standings_ranks
 
 REPO = Path(__file__).resolve().parents[1]
 log = logging.getLogger("fetch_results")
+# Teams per division that qualify through their division, in every season whose order is
+# checked (the division/wild-card format, 2013-14 on).
+DIVISION_QUALIFIERS = 3
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
 
     problems: dict[int, list[str]] = {}
     frames: list[pl.DataFrame] = []
+    ranked: list[int] = []  # seasons whose standings order was checked
     with NHLClient(args.cache_dir) as client:
         seasons = parse_standings_seasons(
             client.get_json(STANDINGS_SEASON_URL, refresh=args.refresh)
@@ -83,16 +92,25 @@ def main(argv: list[str] | None = None) -> int:
                 problems[season_id] = [str(e)]
                 continue
             found = find_result_problems(games)
-            official = parse_standings_records(
-                fetch_final_standings(client, seasons, season_id, refresh=args.refresh),
-                season_id,
-            )
+            payload = fetch_final_standings(client, seasons, season_id, refresh=args.refresh)
+            official = parse_standings_records(payload, season_id)
             try:
                 ours = team_records(games, no_point_losses=no_point_losses)
             except StandingsError as e:
                 problems[season_id] = [*found, str(e)]
                 continue
             found += compare_records(ours, official)
+            if _current_rules(wanted, season_id):
+                official_ranks = parse_standings_ranks(payload, season_id)
+                try:
+                    ranks = standings_ranks(
+                        ours, official_ranks, division_qualifiers=DIVISION_QUALIFIERS
+                    )
+                except TiebreakError as e:
+                    found.append(str(e))
+                else:
+                    found += compare_ranks(ranks, official_ranks)
+                    ranked.append(season_id)
             if found:
                 problems[season_id] = found
             frames.append(games)
@@ -109,19 +127,32 @@ def main(argv: list[str] | None = None) -> int:
     save_results(results, out)
     write_parquet_atomic(wanted, args.out_dir / f"seasons_{args.first}_{args.last}.parquet")
     write_parquet_atomic(teams, args.out_dir / "teams.parquet")
-    _print_summary(results, wanted, out, len(no_point_losses))
+    _print_summary(results, wanted, out, len(no_point_losses), ranked)
     return 0
 
 
+def _current_rules(seasons: pl.DataFrame, season_id: int) -> bool:
+    """Whether the season used today's tiebreakers and playoff format (API flags)."""
+    row = seasons.filter(pl.col("season_id") == season_id).row(0, named=True)
+    return row["regulation_wins_in_use"] and row["wildcard_in_use"] and row["conferences_in_use"]
+
+
 def _print_summary(
-    results: pl.DataFrame, seasons: pl.DataFrame, out: Path, n_exceptions: int
+    results: pl.DataFrame, seasons: pl.DataFrame, out: Path, n_exceptions: int, ranked: list[int]
 ) -> None:
     print(f"\nSaved {results.height} games to {out}")
     n_records = results.select("season_id", "home_abbrev").unique().height
     print(
         f"All {n_records} team-season records match the NHL's official final standings "
-        f"({n_exceptions} documented exception(s) applied).\n"
+        f"({n_exceptions} documented exception(s) applied)."
     )
+    if ranked:
+        print(
+            f"Standings order (division, conference, league, wild card) matches the NHL's "
+            f"for {len(ranked)} seasons played under today's rules: {ranked}.\n"
+        )
+    else:
+        print("No season in the range was played under today's rules; order not checked.\n")
     per_season = (
         results.group_by("season_id")
         .agg(
