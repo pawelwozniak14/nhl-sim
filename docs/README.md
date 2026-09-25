@@ -33,3 +33,6 @@ odds. Built on the Elo ratings above (task 1.6, in progress).
 2. [Simulated seasons](simulator/02-season-simulation.md): how a season is simulated,
    why the simulator must be unsure of each team's strength, how that uncertainty was
    tuned on replayed past preseasons, and the 2026-27 preview.
+3. [Standings order and playoff seeding](simulator/03-standings-and-seeding.md): the
+   NHL's tiebreakers, how they were checked against the real standings, how simulated
+   seasons are seeded, and the 2026-27 playoff odds.
