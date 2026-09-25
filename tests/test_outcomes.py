@@ -21,22 +21,31 @@ with variances 1 / (n p (1 - p)) of each logit, so
 100 overtime-period games and 50 shootouts: ot_share = 2/3, se sqrt((2/3)(1/3)/150).
 """
 
+import copy
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 from pydantic import ValidationError
 
+from nhlsim.models.elo import load_elo_config
 from nhlsim.models.outcomes import (
     OUTCOMES,
     SHOOTOUT_HOME_WIN,
+    OutcomeConfig,
     OutcomeError,
     OutcomeParams,
     fit_outcomes,
+    load_outcome_config,
     outcome_index,
     outcome_probabilities,
     three_way,
 )
+
+REPO = Path(__file__).resolve().parents[1]
+CONFIG_PATH = REPO / "config" / "outcomes.yaml"
 
 PARAMS = OutcomeParams(
     cut_away=-0.5, cut_home=0.5, slope=0.005, ot_share=0.65, ot_intercept=-0.1, ot_slope=0.004
@@ -409,3 +418,92 @@ def test_fit_rejects_mismatched_or_bad_input() -> None:
         fit_outcomes(d[1:], period, home_won)
     with pytest.raises(OutcomeError, match="finite"):
         fit_outcomes(np.r_[math.nan, d[1:]], period, home_won)
+
+
+# ---- config/outcomes.yaml ---------------------------------------------------------------------
+
+
+def test_real_config() -> None:
+    # values printed by scripts/fit_outcomes.py --final on the owner's machine (2026-09-25);
+    # other platforms differ in the 17th digit, hence the tolerance
+    cfg = load_outcome_config(CONFIG_PATH)
+    assert cfg.params.model_dump() == pytest.approx(
+        {
+            "cut_away": -0.47933387947602873,
+            "cut_home": 0.47064793703134894,
+            "slope": 0.005711224415551696,
+            "ot_share": 0.669769324160259,
+            "ot_intercept": -0.037783294743280474,
+            "ot_slope": 0.0032504865486233494,
+        },
+        rel=1e-9,
+    )
+    assert (cfg.fit.first_season, cfg.fit.last_season, cfg.fit.games) == (
+        20172018, 20252026, 11052
+    )  # fmt: skip
+
+
+def test_real_config_belongs_to_the_published_elo_settings() -> None:
+    elo = load_elo_config(REPO / "config" / "elo.yaml").params
+    cfg = load_outcome_config(CONFIG_PATH)
+    assert cfg.fit.elo == elo
+    assert cfg.params_for(elo) == cfg.params
+
+
+@pytest.fixture
+def cfg_dict() -> dict:
+    with CONFIG_PATH.open(encoding="utf-8") as f:
+        return copy.deepcopy(yaml.safe_load(f))
+
+
+def test_params_for_other_elo_settings_is_refused(cfg_dict: dict) -> None:
+    cfg = OutcomeConfig.model_validate(cfg_dict)
+    other = cfg.fit.elo.model_copy(update={"home_advantage": 30.0, "k": 10.0})
+    with pytest.raises(OutcomeError, match=r"k 9\.0 vs 10\.0, home_advantage 27\.5 vs 30\.0"):
+        cfg.params_for(other)
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "value", "message"),
+    [
+        ("fit", "first_season", 2017, "must look like 20172018"),
+        ("fit", "last_season", 20252027, "must look like 20172018"),
+        ("fit", "first_season", 20262027, "first_season <= last_season"),
+        ("fit", "games", 0, "greater than 0"),
+        ("fit", "games", "11052", "should be a valid integer"),
+        ("fit", "source", "", "at least 1 character"),
+        ("fit", "notes", "x", "Extra inputs"),
+        ("params", "slope", "0.0057", "should be a valid number"),
+        ("params", "ot_share", 1.2, "less than 1"),
+    ],
+)
+def test_invalid_config(
+    cfg_dict: dict, section: str, key: str, value: object, message: str
+) -> None:
+    cfg_dict[section][key] = value
+    with pytest.raises(ValidationError, match=message):
+        OutcomeConfig.model_validate(cfg_dict)
+
+
+def test_config_fitted_on_one_season_is_valid(cfg_dict: dict) -> None:
+    cfg_dict["fit"]["first_season"] = cfg_dict["fit"]["last_season"] = 20252026
+    assert OutcomeConfig.model_validate(cfg_dict).fit.first_season == 20252026
+
+
+def test_config_elo_block_is_strict(cfg_dict: dict) -> None:
+    cfg_dict["fit"]["elo"]["shootout_as_draw"] = "no"
+    with pytest.raises(ValidationError, match="should be a valid boolean"):
+        OutcomeConfig.model_validate(cfg_dict)
+
+
+def test_config_needs_both_sections(cfg_dict: dict) -> None:
+    del cfg_dict["fit"]
+    with pytest.raises(ValidationError, match="fit"):
+        OutcomeConfig.model_validate(cfg_dict)
+
+
+def test_loader_rejects_non_mapping(tmp_path: Path) -> None:
+    p = tmp_path / "outcomes.yaml"
+    p.write_text("- just\n- a list\n", encoding="utf-8")
+    with pytest.raises(TypeError, match="mapping"):
+        load_outcome_config(p)

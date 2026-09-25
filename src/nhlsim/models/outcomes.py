@@ -38,11 +38,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+import yaml
 from numpy.typing import ArrayLike, NDArray
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scipy.special import expit, logit
+
+from nhlsim.models.elo import EloParams
 
 OUTCOMES = ("away_rw", "away_otw", "away_sow", "home_sow", "home_otw", "home_rw")
 THREE_WAY = ("away_rw", "past_regulation", "home_rw")
@@ -90,6 +94,72 @@ class OutcomeParams(BaseModel):
         if not self.cut_away < self.cut_home:
             raise ValueError(f"need cut_away < cut_home, got {self.cut_away}, {self.cut_home}")
         return self
+
+
+class OutcomeFitInfo(BaseModel):
+    """Where published parameters came from (see ``config/outcomes.yaml``)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    elo: EloParams  # the Elo settings whose rating differences the model was fitted on
+    first_season: int
+    last_season: int
+    games: int = Field(gt=0)
+    source: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _seasons_in_order(self) -> OutcomeFitInfo:
+        for name in ("first_season", "last_season"):
+            start, end = divmod(getattr(self, name), 10_000)
+            if end != start + 1:
+                raise ValueError(f"{name} must look like 20172018, got {getattr(self, name)}")
+        if not self.first_season <= self.last_season:
+            raise ValueError("need first_season <= last_season")
+        return self
+
+
+class OutcomeConfig(BaseModel):
+    """The outcome-model parameters the published projections use, with provenance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    params: OutcomeParams
+    fit: OutcomeFitInfo
+
+    def params_for(self, elo: EloParams) -> OutcomeParams:
+        """The parameters, if they were fitted for these Elo settings.
+
+        The model's slopes are on the scale of the rating differences the fit saw, so
+        parameters fitted with other Elo settings (another K, home advantage or pull)
+        would silently mis-split games.
+
+        Raises:
+            OutcomeError: ``elo`` differs from the settings recorded in ``fit.elo``.
+        """
+        if elo != self.fit.elo:
+            ours, theirs = self.fit.elo.model_dump(), elo.model_dump()
+            diffs = ", ".join(
+                f"{k} {ours[k]!r} vs {theirs[k]!r}" for k in ours if ours[k] != theirs[k]
+            )
+            raise OutcomeError(
+                f"outcome parameters were fitted with other Elo settings ({diffs}); "
+                "refit with scripts/fit_outcomes.py --final"
+            )
+        return self.params
+
+
+def load_outcome_config(path: Path | str) -> OutcomeConfig:
+    """Read and validate ``config/outcomes.yaml``.
+
+    Raises:
+        TypeError: if the file does not contain a YAML mapping.
+        pydantic.ValidationError: if the content is invalid.
+    """
+    with Path(path).open(encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    if not isinstance(raw, dict):
+        raise TypeError(f"{path}: expected a YAML mapping, got {type(raw).__name__}")
+    return OutcomeConfig.model_validate(raw)
 
 
 @dataclass(frozen=True)
