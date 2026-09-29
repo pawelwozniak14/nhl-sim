@@ -1,0 +1,159 @@
+{
+  "snapshot": {
+    "kind": "preseason",
+    "season_id": 20262027,
+    "season": "2026-27",
+    "frozen_at_utc": "2026-09-29T17:03:37Z",
+    "first_game_start_utc": "2026-09-29T21:00:00Z",
+    "games": 1344,
+    "games_played": 0,
+    "license": "CC BY 4.0",
+    "credit": "Paweł Woźniak (pawelwozniak14), nhl-sim"
+  },
+  "model": {
+    "name": "M1: plain Elo, outcome model, cold simulation with strength uncertainty",
+    "elo": {
+      "k": 9.0,
+      "home_advantage": 27.5,
+      "season_regression": 0.3,
+      "shootout_as_draw": false,
+      "margin_weight": 0.0,
+      "initial_rating": 1500.0
+    },
+    "outcomes": {
+      "cut_away": -0.47933387947602873,
+      "cut_home": 0.47064793703134894,
+      "slope": 0.005711224415551696,
+      "ot_share": 0.669769324160259,
+      "ot_intercept": -0.037783294743280474,
+      "ot_slope": 0.0032504865486233494
+    },
+    "simulation": {
+      "sigma": 45.0,
+      "n_sims": 50000,
+      "seed": 202627,
+      "random_streams": {
+        "strengths": [
+          202627,
+          20262027,
+          0
+        ],
+        "games": [
+          202627,
+          20262027,
+          1
+        ],
+        "tiebreaks": [
+          202627,
+          20262027,
+          2
+        ],
+        "generator": "numpy.random.default_rng (PCG64)"
+      },
+      "game_probabilities": "outcome model averaged over sigma (40-point Gauss-Hermite quadrature)",
+      "tiebreakers": "points, games played, regulation wins, regulation + overtime wins, wins, then a seeded random draw"
+    },
+    "variants": {
+      "model": "opening ratings, sigma 45",
+      "sigma_0": "opening ratings, sigma 0 (baseline)",
+      "equal_teams": "every team at 1500, sigma 0 (baseline)"
+    }
+  },
+  "code": {
+    "repository": "https://github.com/pawelwozniak14/nhl-sim",
+    "commit": "c85afa2b653f8d0594deb2cc83265bc6c5d710a3",
+    "environment": {
+      "python": "3.12.13",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "packages": {
+        "nhlsim": "0.1.0",
+        "numpy": "2.5.3",
+        "scipy": "1.18.1",
+        "polars": "1.44.2",
+        "pydantic": "2.13.5",
+        "pyyaml": "6.0.3"
+      }
+    }
+  },
+  "inputs": {
+    "grading_plan": {
+      "path": "docs/preregistration/grading-plan-2026-27.md",
+      "bytes": 8165,
+      "sha256": "7792820e27c8591a36fdd96f673ab952e1a83ac8f527d9fcd480829a9b98974e"
+    },
+    "configs": [
+      {
+        "path": "config/season_2026_27.yaml",
+        "bytes": 4112,
+        "sha256": "8d38d90805c874626ed8b25ffb67d878c489b4057bba9e64c49e584fc42205ee"
+      },
+      {
+        "path": "config/elo.yaml",
+        "bytes": 514,
+        "sha256": "4bb7b1941490cc943bef92b2e470756fdbefd4f8f77b7a71b1cf3b8121f7250a"
+      },
+      {
+        "path": "config/outcomes.yaml",
+        "bytes": 798,
+        "sha256": "9a685db7b7e3c6d8d62f9f4d5c2ddecac54aa98aa7d3bb86297e43c2a2db62fb"
+      },
+      {
+        "path": "config/model.yaml",
+        "bytes": 713,
+        "sha256": "de6801926d84a927eb3f67e7902831ef8ef061063892fd3988faf2a1eed0c8d4"
+      },
+      {
+        "path": "config/standings_exceptions.yaml",
+        "bytes": 1135,
+        "sha256": "21c8367e7628de266e0599d72c64bbef64590cbaea2b3965c84d39f3f80dee13"
+      }
+    ],
+    "uv_lock": {
+      "path": "uv.lock",
+      "bytes": 40861,
+      "sha256": "500990c1b29a9ec62a3a717d3a217028ae5d9a9f5aa5b47444d0dff1a8ad48c9"
+    },
+    "results": {
+      "path": "data/processed/results_20152016_20252026.parquet",
+      "bytes": 162190,
+      "sha256": "37bc611749c8cd50abc9f289133a148175b7306cc21777c63d92406ffd9b486c",
+      "games": 13512,
+      "last_game_date": "2026-04-16"
+    },
+    "schedule": {
+      "path": "data/processed/schedule_20262027.parquet",
+      "bytes": 18961,
+      "sha256": "2d84e1e99774cc8cb2895db8e773194f2d692f43596052fa411d48530576a989",
+      "games": 1344,
+      "club_schedules_fetched_utc": [
+        "2026-09-29T17:03:20Z",
+        "2026-09-29T17:03:36Z"
+      ]
+    }
+  },
+  "outputs": [
+    {
+      "file": "games.csv",
+      "bytes": 211418,
+      "sha256": "09bdd0999c19e9570f2811793044c974f54d60a5d9902c390c8cd60140826fc4",
+      "rows": 1344
+    },
+    {
+      "file": "teams.csv",
+      "bytes": 5860,
+      "sha256": "9dba520e608b8e5cdef6bff7eded67c2f44db9403438397ab7c22a7e0fdda57f",
+      "rows": 32
+    },
+    {
+      "file": "points.csv",
+      "bytes": 59199,
+      "sha256": "e331bc0c55af94228e5d2fbd3023eebd9195860932073d59b165bf217f526489",
+      "rows": 3429
+    },
+    {
+      "file": "README.md",
+      "bytes": 2438,
+      "sha256": "f7acf9b66b0fe67b9d72336c0b99c89640dd65208ea869bf253a9f9ab87e23ba"
+    }
+  ]
+}
