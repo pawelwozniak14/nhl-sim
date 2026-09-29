@@ -3,9 +3,10 @@
 A Monte Carlo simulator that projects the rest of the NHL regular season and playoffs,
 published as a static website updated daily.
 
-> **Status:** early development. The preseason projection for the 2026-27 season will be
-> frozen and committed before the first game (29 Sep 2026) so it can be graded honestly
-> against what actually happens.
+> **Status:** early development. The **2026-27 preseason projection was frozen before the
+> first game** (29 Sep 2026, 17:03 UTC; tag `preseason-2026-27`) so it can be graded honestly
+> against what actually happens: [record and grading plan](docs/preregistration/README.md).
+> How the model works: [docs](docs/README.md).
 
 ## License
 

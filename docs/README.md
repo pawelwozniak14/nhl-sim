@@ -25,7 +25,7 @@ The first model in the project and the baseline every later model must beat.
 ## Season simulator
 
 How single-game predictions become simulated seasons: standings, points and playoff
-odds. Built on the Elo ratings above (task 1.6, in progress).
+odds. Built on the Elo ratings above.
 
 1. [How games end](simulator/01-outcome-split.md): the model that splits each game
    into regulation, overtime and shootout wins for either side, how it was fitted,
@@ -36,3 +36,13 @@ odds. Built on the Elo ratings above (task 1.6, in progress).
 3. [Standings order and playoff seeding](simulator/03-standings-and-seeding.md): the
    NHL's tiebreakers, how they were checked against the real standings, how simulated
    seasons are seeded, and the 2026-27 playoff odds.
+
+## Pre-registration
+
+Projections frozen before the games they predict, and how they will be graded.
+
+- [Record of the frozen projections](preregistration/README.md): the 2026-27 preseason
+  projection (frozen 29 September 2026, before the first game), with its timestamps,
+  archive captures and file hashes.
+- [Grading plan 2026-27](preregistration/grading-plan-2026-27.md): metrics, baselines
+  and the pass rule, written before the freeze.
