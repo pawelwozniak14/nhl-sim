@@ -31,6 +31,8 @@ link-mode = "copy"
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+# Frozen snapshots are never edited, not even by the formatter (their hashes are published).
+extend-exclude = ["data/snapshots"]
 
 [tool.ruff.format]
 line-ending = "lf"
