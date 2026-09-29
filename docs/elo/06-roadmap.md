@@ -106,9 +106,11 @@ update ratings after every simulated game, so a team that starts well becomes
 stronger in the simulation. Both versions, and their combination, will be compared
 on season-level calibration.
 
-**Neutral-site games** (task 4.1). Home advantage currently applies to every game,
-including the four 2026-27 games in Europe, which are truly neutral. The fix must
-tell those apart from neutral-site games in the home team's own region.
+**Neutral-site games** (task 4.1). Predictions already give neutral-site games outside
+North America no home advantage (since task 1.7, by the venue's time zone). The rating
+updates, the outcome-model fit and the sigma replays' ratings still apply it to every
+past game, including about 22 in Europe since 2015-16. The fix makes them consistent and
+decides what neutral-site games in the home team's own region get.
 
 **Schedule and goalies** (tasks 4.1 and 4.2). Rest days, back-to-back games, travel
 and the starting goalie all affect single games. These are features for later

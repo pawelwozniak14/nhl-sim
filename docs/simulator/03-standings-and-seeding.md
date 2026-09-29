@@ -98,11 +98,11 @@ With the published settings (50,000 simulated seasons, $`\sigma`$ = 45), selecte
 | Team | Playoff place | Division winner | Wild card | First in conference | Presidents' Trophy |
 |---|---|---|---|---|---|
 | Colorado | 88.1% | 35.5% | 14.8% | 28.3% | 14.7% |
-| Dallas | 81.3% | 25.0% | 18.5% | 19.3% | 9.5% |
-| Carolina | 80.8% | 38.3% | 8.1% | 19.9% | 12.3% |
+| Dallas | 81.3% | 25.0% | 18.5% | 19.3% | 9.6% |
+| Carolina | 80.8% | 38.3% | 8.2% | 20.0% | 12.3% |
 | Toronto | 23.8% | 2.6% | 10.4% | 1.1% | 0.5% |
 | Vancouver | 15.6% | 2.2% | 3.7% | 0.3% | 0.1% |
-| Chicago | 11.2% | 0.5% | 7.0% | 0.3% | 0.1% |
+| Chicago | 11.1% | 0.5% | 7.0% | 0.3% | 0.1% |
 
 The chances of a playoff place add up to eight teams per conference, and every simulated
 season has exactly eight playoff teams in each conference (checked by the script). No team

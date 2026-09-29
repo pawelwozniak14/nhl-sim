@@ -119,7 +119,7 @@ seasons). Selected rows of the curve:
 
 | $`\sigma`$ | 0 | 20 | 30 | 40 | 45 | **50** | 55 | 60 | 80 | 100 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| CRPS | 7.392 | 7.272 | 7.173 | 7.098 | 7.074 | **7.065** | 7.067 | 7.083 | 7.249 | 7.540 |
+| CRPS | 7.392 | 7.272 | 7.173 | 7.098 | 7.075 | **7.065** | 7.068 | 7.084 | 7.249 | 7.540 |
 | 90% coverage | 0.679 | 0.731 | 0.795 | 0.878 | 0.891 | **0.910** | 0.936 | 0.962 | 0.994 | 1.000 |
 | 90% range width (points) | 26.0 | 29.1 | 32.5 | 36.7 | 38.9 | **41.2** | 43.6 | 46.0 | 55.6 | 64.6 |
 
@@ -137,14 +137,14 @@ $`\sigma`$ = 50 and at $`\sigma`$ = 0 for comparison; nothing was chosen from th
 | Held out | CRPS | 50% coverage | 80% | 90% | 90% width |
 |---|---|---|---|---|---|
 | $`\sigma`$ = 50 | 7.301 | 54.7% | 82.8% | 93.0% | 43.8 |
-| $`\sigma`$ = 0 | 7.597 | 35.2% | 60.2% | 73.4% | 27.1 |
+| $`\sigma`$ = 0 | 7.596 | 35.2% | 60.2% | 73.4% | 27.1 |
 | Calibrated would be ($`\sigma`$ = 50) | | 52.4% | 81.3% | 90.8% | |
 
 By season, the 90% ranges at $`\sigma`$ = 50 covered 90.6% of teams in 2022-23, 100% in
 2023-24, 93.8% in 2024-25 and 87.5% in the reshuffled 2025-26 (at $`\sigma`$ = 0: 65.6%,
 81.3%, 81.3%, 65.6%). CRPS improved in three of the four seasons; in 2023-24, the season
 opening ratings predicted best, the narrower ranges of $`\sigma`$ = 0 scored slightly
-better (5.855 against 5.891).
+better (5.852 against 5.889).
 
 **The published value: $`\sigma`$ = 45.** As for the Elo settings and the outcome model,
 the published value is chosen on all nine seasons 2017-18 to 2025-26 (284 team-seasons),
@@ -268,7 +268,19 @@ they will be graded is fixed in advance in the freeze's grading plan (task 1.7).
 - **Preseason only, for now.** Once games are played, the projection should start from
   current ratings, not opening ones (the daily pipeline, task 3.1); the preview refuses to
   run once games have been played.
-- **Neutral-site games** get home advantage, as everywhere else in the model.
+- **Neutral-site games abroad get no home advantage** (since task 1.7): a neutral-site
+  game whose venue time zone is outside North America (the four 2026-27 games in Helsinki
+  and Berlin) is played with $`H = 0`$ in the simulator and in the frozen game
+  probabilities (`home_advantage_by_game`); neutral-site games in North America, in
+  2026-27 all in the listed home team's own region, keep it. This lowers the listed home
+  team's win probability by about 3.7 percentage points in each European game; each
+  pair swaps home and away, so projected points barely move (none at one decimal) and
+  playoff odds by at most 0.1 point. The replays in section 5 use the same simulator, so
+  their past European games lost the home advantage too: the chosen values stay
+  ($`\sigma`$ 50 on the fitting seasons, 45 published, `config/model.yaml` reproduced
+  exactly), and a few CRPS figures moved by 0.001 to 0.003 (updated above). The Elo
+  ratings themselves still apply home advantage to every past game, about 22 of them in
+  Europe since 2015-16 (task 4.1).
 
 Next: tiebreakers and playoff seeding (task 1.4), then the freeze itself (task 1.7).
 

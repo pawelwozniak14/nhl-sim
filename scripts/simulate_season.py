@@ -48,6 +48,7 @@ from nhlsim.models.outcomes import load_outcome_config, outcome_probabilities, t
 from nhlsim.simulate.playoffs import playoff_odds, rank_simulations, tiebreak_rng
 from nhlsim.simulate.season import (
     draw_strengths,
+    home_advantage_by_game,
     load_model_config,
     projection_rngs,
     simulate_season,
@@ -197,7 +198,7 @@ def _print_checks(sims, games, strengths, ids, elo, outcomes, games_per_team: in
     home = [position[t] for t in games["home_lineage_id"]]
     away = [position[t] for t in games["away_lineage_id"]]
     s = strengths[:CHECK_SIMS]
-    d = s[:, home] + elo.home_advantage - s[:, away]
+    d = s[:, home] + home_advantage_by_game(games, elo.home_advantage) - s[:, away]
     expected = three_way(outcome_probabilities(d, outcomes.params_for(elo)))[..., 1].sum(axis=1)
     per_season = sims.otl.sum(axis=1)  # every game past regulation gives exactly one OTL
     print(

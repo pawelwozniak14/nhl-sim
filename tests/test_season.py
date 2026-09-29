@@ -37,6 +37,7 @@ from nhlsim.simulate.season import (
     SimulationError,
     SimulationSettings,
     draw_strengths,
+    home_advantage_by_game,
     load_model_config,
     projection_rngs,
     simulate_season,
@@ -232,6 +233,98 @@ def test_home_advantage_is_applied() -> None:
     share, se = record(sims, TOR)["w"].mean(), np.sqrt(p_home * (1 - p_home) / 20_000)
     assert p_home == pytest.approx(0.5401391818952646)
     assert abs(share - p_home) < 4 * se
+
+
+# ---- home advantage at neutral sites ------------------------------------------------------------
+
+
+def at_venue(games: pl.DataFrame, neutral: bool, zone: str) -> pl.DataFrame:
+    """The games moved to one kind of venue (made up: the real ones are in North America)."""
+    return games.with_columns(neutral_site=pl.lit(neutral), venue_timezone=pl.lit(zone))
+
+
+@pytest.mark.parametrize(
+    ("neutral", "zone", "expected"),
+    [
+        (False, "America/Toronto", 27.5),
+        (False, "US/Eastern", 27.5),
+        (True, "America/New_York", 27.5),  # e.g. G4, the 2016 Winter Classic in Foxborough
+        (True, "US/Pacific", 27.5),
+        (True, "Canada/Mountain", 27.5),
+        (True, "Europe/Helsinki", 0.0),
+        (True, "Europe/Berlin", 0.0),
+        (True, "Asia/Tokyo", 0.0),
+        (False, "Europe/Stockholm", 27.5),  # only neutral sites lose it
+    ],
+)
+def test_home_advantage_by_game(neutral: bool, zone: str, expected: float) -> None:
+    games = at_venue(season(), neutral, zone)
+    assert home_advantage_by_game(games, 27.5).tolist() == [expected] * games.height
+
+
+def test_home_advantage_by_game_mixed_rows_keep_their_order() -> None:
+    games = season().with_columns(
+        neutral_site=pl.Series([False, True, True, True, False, True]),
+        venue_timezone=pl.Series(
+            ["America/Toronto", "Europe/Prague", "US/Eastern", "Europe/Helsinki",
+             "US/Eastern", "America/New_York"]
+        ),
+    )  # fmt: skip
+    assert home_advantage_by_game(games, 30.0).tolist() == [30.0, 0.0, 30.0, 0.0, 30.0, 30.0]
+
+
+def test_neutral_site_without_time_zone_is_refused() -> None:
+    games = season().with_columns(
+        neutral_site=pl.lit(True),
+        venue_timezone=pl.Series(["US/Eastern", None, "US/Eastern", "US/Eastern", "US/Eastern",
+                                  "US/Eastern"], dtype=pl.String),
+    )  # fmt: skip
+    with pytest.raises(SimulationError, match="venue time zone"):
+        home_advantage_by_game(games, 27.5)
+    home_games = games.with_columns(neutral_site=pl.lit(False))  # time zone not needed
+    assert home_advantage_by_game(home_games, 27.5).tolist() == [27.5] * 6
+
+
+ELO_H0 = ELO.model_copy(update={"home_advantage": 0.0})
+OUTCOMES_H0 = OutcomeConfig(params=PARAMS, fit=OUTCOMES.fit.model_copy(update={"elo": ELO_H0}))
+UNEVEN = [30.0, -20.0, 5.0]  # made-up ratings of MTL, TOR, BOS
+
+
+@pytest.mark.parametrize("per_season", [False, True], ids=["one-strength", "per-season"])
+def test_neutral_sites_abroad_play_without_home_advantage(per_season: bool) -> None:
+    # The same seasons as home games with a home advantage of 0: identical, draw for draw.
+    strengths = np.tile(UNEVEN, (200, 1)) if per_season else UNEVEN
+    # G1 (played, a normal home game) comes first, so the per-game home advantage must be
+    # lined up with the remaining games, not with all games.
+    abroad = at_venue(season(played=(2015020001,)), True, "Europe/Stockholm").with_columns(
+        neutral_site=pl.Series([False, True, True, True, True, True])
+    )
+    at_home = at_venue(season(played=(2015020001,)), False, "Europe/Stockholm")
+    with_h = simulate_season(
+        abroad, strengths, TEAMS, ELO, OUTCOMES, POINTS, 200, np.random.default_rng(7)
+    )
+    without_h = simulate_season(
+        at_home, strengths, TEAMS, ELO_H0, OUTCOMES_H0, POINTS, 200, np.random.default_rng(7)
+    )
+    assert _same(with_h, without_h)
+    normal = simulate_season(
+        at_home, strengths, TEAMS, ELO, OUTCOMES, POINTS, 200, np.random.default_rng(7)
+    )
+    assert not _same(with_h, normal)
+
+
+@pytest.mark.parametrize("per_season", [False, True], ids=["one-strength", "per-season"])
+def test_neutral_sites_in_north_america_keep_the_home_advantage(per_season: bool) -> None:
+    strengths = np.tile(UNEVEN, (200, 1)) if per_season else UNEVEN
+    games = season(played=(2015020001,))
+    runs = [
+        simulate_season(
+            at_venue(games, neutral, "US/Eastern"), strengths, TEAMS, ELO, OUTCOMES, POINTS,
+            200, np.random.default_rng(7),
+        )
+        for neutral in (True, False)
+    ]  # fmt: skip
+    assert _same(*runs)
 
 
 # ---- reproducibility --------------------------------------------------------------------------

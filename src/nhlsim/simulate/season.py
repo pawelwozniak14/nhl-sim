@@ -2,7 +2,9 @@
 
 Every remaining game gets one of the six outcomes of :mod:`nhlsim.models.outcomes`
 (away RW, OTW, SOW, home SOW, OTW, RW), drawn from the pre-game rating difference
-``d = strength_home + home_advantage - strength_away``. Games already played keep their
+``d = strength_home + home_advantage - strength_away``, with the home advantage of
+:func:`home_advantage_by_game` (none at neutral sites outside North America). Games
+already played keep their
 real results, counted by :func:`~nhlsim.simulate.standings.team_records` (so documented
 standings exceptions apply). The result is each team's record in every simulated season.
 
@@ -39,6 +41,8 @@ from nhlsim.models.outcomes import OutcomeConfig, OutcomeParams, outcome_probabi
 from nhlsim.simulate.standings import team_records
 
 COUNTS = ("w", "l", "otl", "rw", "row")
+# Venue time zones in North America (IANA names; the API also uses the old US/... aliases).
+NORTH_AMERICA = ("America/", "US/", "Canada/")
 
 # What each outcome (index into OUTCOMES: away RW, OTW, SOW, home SOW, OTW, RW) adds to
 # the home and the away team's counts, in the order of COUNTS.
@@ -190,8 +194,9 @@ def simulate_season(
         strengths: Rating of each team, in the order of ``teams``: shape ``(n_teams,)``
             for the same strengths in every simulated season, or ``(n_sims, n_teams)``.
         teams: Lineage IDs; every team in ``games`` must be among them.
-        elo: The Elo settings the strengths are on: home advantage, and the key under
-            which ``outcomes`` must have been fitted.
+        elo: The Elo settings the strengths are on: home advantage (per game, see
+            :func:`home_advantage_by_game`), and the key under which ``outcomes`` must
+            have been fitted.
         outcomes: Outcome-model parameters (``config/outcomes.yaml``).
         points: Points for a win, an overtime/shootout loss and a regulation loss.
         n_sims: Number of simulated seasons.
@@ -229,16 +234,17 @@ def simulate_season(
     away_of = np.zeros((away.size, team_ids.size))
     home_of[np.arange(home.size), home] = 1
     away_of[np.arange(away.size), away] = 1
+    h = home_advantage_by_game(remaining, elo.home_advantage)
 
     counts = np.empty((n_sims, len(COUNTS), team_ids.size), dtype=np.int32)
     fixed = None
     if strength.ndim == 1:  # the same probabilities in every simulated season
-        fixed = _thresholds(strength[home] + elo.home_advantage - strength[away], params)
+        fixed = _thresholds(strength[home] + h - strength[away], params)
     for start in range(0, n_sims, chunk):
         stop = min(start + chunk, n_sims)
         if fixed is None:
             s = strength[start:stop]
-            thresholds = _thresholds(s[:, home] + elo.home_advantage - s[:, away], params)
+            thresholds = _thresholds(s[:, home] + h - s[:, away], params)
         else:
             thresholds = fixed
         u = rng.random((stop - start, home.size))
@@ -249,6 +255,31 @@ def simulate_season(
     w, losses, otl, rw, row = (counts[:, k] for k in range(len(COUNTS)))
     total = points.win * w + points.ot_loss * otl + points.regulation_loss * losses
     return SeasonSims(team_ids, w, losses, otl, rw, row, total.astype(np.int32))
+
+
+def home_advantage_by_game(games: pl.DataFrame, home_advantage: float) -> NDArray[np.float64]:
+    """Home advantage (rating points) of each game, in the row order of ``games``.
+
+    The league-wide ``home_advantage``, except **0 for neutral-site games outside North
+    America** (venue time zone not ``America/...``, ``US/...`` or ``Canada/...``): the
+    NHL's games in Europe, where both teams travel and neither plays before its own crowd.
+    Neutral-site games in North America keep it: they are mostly outdoor games in or near
+    the listed home team's city (in 2026-27 all three are: Winnipeg, Salt Lake City and
+    Dallas's time zone).
+
+    Only predictions use this rule (the simulator and frozen game probabilities). The Elo
+    ratings, and the outcome model and sigma fitted on top of them, still apply the home
+    advantage to every past game, about 22 of them in Europe since 2015-16 (task 4.1).
+
+    Raises:
+        SimulationError: a neutral-site game without a venue time zone.
+    """
+    neutral = games["neutral_site"].to_list()
+    zones = games["venue_timezone"].to_list()
+    if any(n and z is None for n, z in zip(neutral, zones, strict=True)):
+        raise SimulationError("neutral-site games need a venue time zone")
+    abroad = [n and not z.startswith(NORTH_AMERICA) for n, z in zip(neutral, zones, strict=True)]
+    return np.where(np.array(abroad, dtype=bool), 0.0, float(home_advantage))
 
 
 def draw_strengths(

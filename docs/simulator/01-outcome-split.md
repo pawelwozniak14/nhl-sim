@@ -265,7 +265,9 @@ Reasons marked † rest on development checks that the script does not print.
   estimates of true strength. The simulator will draw each team's strength around its
   rating (σ, task 1.6 step (c)) and apply this model to those draws; σ is tuned on the
   whole pipeline's coverage, which absorbs the difference.
-- **Neutral-site games** get home advantage, as in Elo.
+- **Neutral-site games** were fitted with home advantage, as Elo computes the rating
+  difference; predictions give the games in Europe none
+  ([part 2](02-season-simulation.md), section 10).
 
 Next: the simulator itself (task 1.6 step (b)), which samples one of the six outcomes
 for every game of the season, many times over.

@@ -10,13 +10,25 @@ A snapshot freezes what a projection says at one moment, so it can be graded lat
 - :func:`points_counts`: each team's full final-points distribution, as counts of
   simulated seasons, for one or more model variants side by side.
 
-The tables are kept at full precision here; rounding for publication happens when they
-are written. Teams are identified by lineage ID, labelled by :func:`team_labels`.
+The tables are kept at full precision; :func:`csv_bytes` rounds them for publication and
+:func:`write_snapshot` writes a snapshot folder with its manifest. Teams are identified by
+lineage ID, labelled by :func:`team_labels`.
+
+Snapshot files are plain UTF-8 CSV with LF line endings, so their SHA-256 hashes (recorded
+in ``manifest.json``) are the same on every platform and in git.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import hashlib
+import json
+import platform
+import subprocess
+from collections.abc import Callable, Mapping
+from datetime import datetime
+from importlib.metadata import version
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -24,16 +36,20 @@ from numpy.typing import ArrayLike
 
 from nhlsim.config import Playoffs, SeasonConfig
 from nhlsim.ingest.schedule import is_played
+from nhlsim.io import atomic_write_bytes
 from nhlsim.models.elo import EloParams
 from nhlsim.models.outcomes import OUTCOMES, OutcomeConfig, averaged_outcome_probabilities
 from nhlsim.simulate.playoffs import SeasonRanks, playoff_odds
-from nhlsim.simulate.season import COUNTS, SeasonSims
+from nhlsim.simulate.season import COUNTS, SeasonSims, home_advantage_by_game
 
 # Quantiles of final points in the team table; "inverted_cdf" gives simulated values.
 QUANTILES = (0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95)
 PROBABILITY_COLUMNS = tuple(f"p_{o}" for o in OUTCOMES)
 _HOME_WINS = [OUTCOMES.index(o) for o in ("home_sow", "home_otw", "home_rw")]
 _PAST_REGULATION = [OUTCOMES.index(o) for o in ("away_otw", "away_sow", "home_sow", "home_otw")]
+MANIFEST = "manifest.json"
+# Packages whose versions the manifest records (the ones the numbers depend on).
+PACKAGES = ("nhlsim", "numpy", "scipy", "polars", "pydantic", "pyyaml")
 
 
 class SnapshotError(ValueError):
@@ -81,11 +97,12 @@ def game_table(
     """Frozen probabilities of each game, sorted by start time, then game ID.
 
     ``games`` are unplayed games (results schema, with lineage IDs); ``ratings`` are the
-    teams' ratings in the order of ``teams`` (lineage IDs). Every game gets the league-wide
-    home advantage, neutral-site games included (as in the simulator).
+    teams' ratings in the order of ``teams`` (lineage IDs). The home advantage is the
+    simulator's (:func:`~nhlsim.simulate.season.home_advantage_by_game`): none for
+    neutral-site games outside North America.
 
     Columns: game_id, game_date, start_time_utc, away, home, neutral_site, away_rating,
-    home_rating, rating_diff (home rating + home advantage - away rating), the six
+    home_rating, rating_diff (home rating + the game's home advantage - away rating), the six
     outcome probabilities ``p_away_rw`` .. ``p_home_rw`` averaged over ``sigma``, then
     p_home_win and p_past_regulation (sums of those six, at full precision).
 
@@ -105,7 +122,7 @@ def game_table(
     ordered = games.sort(["start_time_utc", "game_id"])
     home = np.array([rating_of[t] for t in ordered["home_lineage_id"]], dtype=np.float64)
     away = np.array([rating_of[t] for t in ordered["away_lineage_id"]], dtype=np.float64)
-    d = home + elo.home_advantage - away
+    d = home + home_advantage_by_game(ordered, elo.home_advantage) - away
     p = averaged_outcome_probabilities(d, params, sigma).reshape(len(d), len(OUTCOMES))
     return pl.DataFrame(
         {
@@ -201,6 +218,157 @@ def points_counts(variants: Mapping[str, SeasonSims]) -> pl.DataFrame:
             part[name] = np.bincount(sims.points[:, i] - low, minlength=high - low + 1)
         parts.append(pl.DataFrame(part, schema={**dict.fromkeys(part, pl.Int64)}))
     return pl.concat(parts)
+
+
+# ---- publication ------------------------------------------------------------------------------
+
+
+def check_preseason(games: pl.DataFrame, now: datetime) -> datetime:
+    """The first game's start time, if no game of the season has started by ``now``.
+
+    A preseason snapshot must be written before the first game: a game counts as started
+    once it is played or its scheduled start time (UTC) is not after ``now``.
+
+    Raises:
+        SnapshotError: no games, ``now`` without a time zone, or a game played or started.
+    """
+    if now.tzinfo is None:
+        raise SnapshotError("now must have a time zone")
+    if games.height == 0:
+        raise SnapshotError("no games")
+    if played := games.filter(is_played())["game_id"].to_list():
+        raise SnapshotError(f"{len(played)} games already played, e.g. {played[:3]}")
+    first = games["start_time_utc"].min()
+    if first <= now:
+        raise SnapshotError(f"the first game started at {first:%Y-%m-%d %H:%M} UTC")
+    return first
+
+
+def csv_bytes(df: pl.DataFrame, decimals: Mapping[str, int], default: int | None = None) -> bytes:
+    """The table as UTF-8 CSV with a header and LF line endings, ready to publish.
+
+    Float columns are written with a fixed number of decimals: ``decimals[column]``, else
+    ``default``. Datetimes (which must be UTC) are written as ``2026-09-29T21:00:00Z``,
+    dates as ``2026-09-29``, booleans as ``true``/``false``. Rounding is Python's (the
+    nearest decimal to the stored binary value, the same on every platform); a value that
+    rounds to zero is written without a minus sign.
+
+    Raises:
+        SnapshotError: nulls, non-finite floats, a float column without a number of
+            decimals, a ``decimals`` entry for a column that is not a float column, or a
+            datetime not in UTC.
+    """
+    if df.null_count().sum_horizontal().item():
+        raise SnapshotError("the table has missing values")
+    floats = [c for c, t in df.schema.items() if t.is_float()]
+    if extra := sorted(set(decimals) - set(floats)):
+        raise SnapshotError(f"decimals given for columns that are not floats: {extra}")
+    formatted = []
+    for column, dtype in df.schema.items():
+        if column in floats:
+            n = decimals.get(column, default)
+            if n is None:
+                raise SnapshotError(f"no number of decimals for {column!r}")
+            if not df[column].is_finite().all():
+                raise SnapshotError(f"{column!r} has values that are not finite")
+            formatted.append(
+                pl.col(column).map_elements(
+                    lambda x, n=n: f"{round(x, n) + 0.0:.{n}f}", return_dtype=pl.String
+                )
+            )
+        elif isinstance(dtype, pl.Datetime):
+            if dtype.time_zone != "UTC":
+                raise SnapshotError(f"{column!r} must be in UTC, not {dtype.time_zone}")
+            formatted.append(pl.col(column).dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    text = df.with_columns(formatted).write_csv(line_terminator="\n")
+    return text.encode("utf-8")
+
+
+def sha256(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def input_record(path: Path, repo: Path) -> dict[str, Any]:
+    """Path (relative to ``repo``, with forward slashes), size and SHA-256 of a file."""
+    content = Path(path).read_bytes()
+    return {
+        "path": Path(path).resolve().relative_to(Path(repo).resolve()).as_posix(),
+        "bytes": len(content),
+        "sha256": sha256(content),
+    }
+
+
+def environment() -> dict[str, Any]:
+    """Python version, platform and the versions of :data:`PACKAGES`."""
+    return {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "packages": {name: version(name) for name in PACKAGES},
+    }
+
+
+Runner = Callable[..., subprocess.CompletedProcess]
+
+
+def git_state(repo: Path, run: Runner = subprocess.run) -> dict[str, Any]:
+    """The commit checked out in ``repo`` and every path git reports as changed.
+
+    ``dirty`` lists the lines of ``git status --porcelain`` (untracked files included):
+    a snapshot's code is only the commit if the list is empty.
+
+    Raises:
+        SnapshotError: git fails (e.g. not a repository).
+    """
+    out = []
+    for args in (["rev-parse", "HEAD"], ["status", "--porcelain"]):
+        done = run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        if done.returncode:
+            raise SnapshotError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
+        out.append(done.stdout)
+    return {"commit": out[0].strip(), "dirty": out[1].splitlines()}
+
+
+def manifest_bytes(manifest: Mapping[str, Any]) -> bytes:
+    """The manifest as indented UTF-8 JSON with a final newline (LF)."""
+    return (json.dumps(manifest, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode()
+
+
+def write_snapshot(
+    directory: Path, files: Mapping[str, bytes], manifest: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Write a new snapshot folder: ``files``, then ``manifest.json``.
+
+    The manifest gets an ``outputs`` list with each file's name, size, SHA-256 and, for
+    CSV files, number of data rows. It is written last, so a folder without it is an
+    unfinished snapshot. Returns the manifest as written.
+
+    Raises:
+        SnapshotError: the folder already exists (snapshots are never overwritten), a file
+            name with a folder in it, a file named manifest.json, a manifest that already
+            has ``outputs``, or a CSV file not ending in a newline.
+    """
+    directory = Path(directory)
+    if directory.exists():
+        raise SnapshotError(f"{directory} already exists; snapshots are never overwritten")
+    if bad := sorted(n for n in files if Path(n).name != n or n in ("", ".", "..")):
+        raise SnapshotError(f"file names must not contain folders: {bad}")
+    if MANIFEST in files or "outputs" in manifest:
+        raise SnapshotError("the manifest and its outputs are written by write_snapshot")
+    outputs = []
+    for name, content in files.items():
+        record: dict[str, Any] = {"file": name, "bytes": len(content), "sha256": sha256(content)}
+        if name.endswith(".csv"):
+            if not content.endswith(b"\n"):
+                raise SnapshotError(f"{name} does not end with a newline")
+            record["rows"] = content.count(b"\n") - 1
+        outputs.append(record)
+    full = {**manifest, "outputs": outputs}
+    body = manifest_bytes(full)  # fails before anything is written
+    directory.mkdir(parents=True)
+    for name, content in files.items():
+        atomic_write_bytes(directory / name, content)
+    atomic_write_bytes(directory / MANIFEST, body)
+    return full
 
 
 # ---- helpers ------------------------------------------------------------------------------

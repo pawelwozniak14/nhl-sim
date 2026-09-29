@@ -53,11 +53,13 @@ which matches the 54.2% of games won by home teams in 2015-16 to 2025-26 (exclud
 2019-20 and 2020-21). There is **one $`H`$ for the whole league**: team-specific home
 advantages were measured and found indistinguishable from noise (part 4).
 
-$`H`$ is also applied to neutral-site games, where the NHL still lists one team as
-home. Seven 2026-27 games are neutral-site. Four are in Europe (two in Helsinki,
-two in Berlin) and truly neutral, so this slightly overstates those home teams; the
-other three are in the listed home team's region, where some home advantage
-plausibly remains. A proper treatment is planned (part 6).
+In the rating updates, $`H`$ is also applied to neutral-site games, where the NHL
+still lists one team as home. Seven 2026-27 games are neutral-site. Four are in Europe
+(two in Helsinki, two in Berlin) and truly neutral; the other three are in the listed
+home team's region, where some home advantage plausibly remains. The simulator and the
+published game probabilities therefore give the European games no home advantage
+([simulator part 2](../simulator/02-season-simulation.md), section 10); the rating
+updates will follow (part 6).
 
 ## 3. After the game: the update
 

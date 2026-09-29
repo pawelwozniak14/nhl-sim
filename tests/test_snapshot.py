@@ -7,13 +7,18 @@ game IDs run against their start times (2026020014 starts before 2026020013). Ra
 simulated records are made up; hand values were computed before being written here.
 """
 
-from datetime import UTC, date, datetime
+import hashlib
+import json
+import shutil
+import subprocess
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 import pytest
 
+import nhlsim
 from nhlsim.config import Playoffs, load_season_config
 from nhlsim.ingest.results import RESULTS_SCHEMA
 from nhlsim.models.elo import EloParams
@@ -28,12 +33,21 @@ from nhlsim.models.outcomes import (
 from nhlsim.simulate.playoffs import SeasonRanks, playoff_odds
 from nhlsim.simulate.season import SeasonSims
 from nhlsim.snapshot import (
+    MANIFEST,
+    PACKAGES,
     PROBABILITY_COLUMNS,
     SnapshotError,
+    check_preseason,
+    csv_bytes,
+    environment,
     game_table,
+    git_state,
+    input_record,
+    manifest_bytes,
     points_counts,
     team_labels,
     team_table,
+    write_snapshot,
 )
 
 REPO = Path(__file__).resolve().parents[1]
@@ -66,13 +80,15 @@ _GAMES = [
      "US/Pacific", 29, 33),
     (2026020309, "2026-11-12", "2026-11-12 17:00", 55, "SEA", 12, "CAR", True,
      "Europe/Helsinki", 39, 26),
+    (2026020647, "2026-12-31", "2026-12-31 23:00", 68, "UTA", 21, "COL", True,
+     "America/Denver", 28, 27),
 ]  # fmt: skip
-# Made-up ratings by lineage ID: CAR, FLA, TOR, MTL, UTA, CHI, CGY, SEA, VAN, EDM, SJS
+# Made-up ratings by lineage ID: CAR, FLA, TOR, MTL, UTA, CHI, CGY, SEA, VAN, EDM, SJS, COL
 RATINGS = {26: 1557.4, 33: 1502.3, 5: 1471.5, 1: 1532.2, 28: 1503.5, 11: 1427.2,
-           21: 1475.2, 39: 1458.2, 20: 1429.1, 25: 1509.1, 29: 1461.6}  # fmt: skip
+           21: 1475.2, 39: 1458.2, 20: 1429.1, 25: 1509.1, 29: 1461.6, 27: 1560.9}  # fmt: skip
 TEAMS, VALUES = list(RATINGS), list(RATINGS.values())
 IN_START_ORDER = [2026020001, 2026020002, 2026020014, 2026020013, 2026020015, 2026020016,
-                  2026020309]  # fmt: skip
+                  2026020309, 2026020647]  # fmt: skip
 
 
 def games(played: tuple[int, ...] = (), reverse: bool = False) -> pl.DataFrame:
@@ -127,10 +143,14 @@ def test_teams_ratings_and_difference() -> None:
     assert first["rating_diff"] == pytest.approx(1557.4 + 27.5 - 1502.3, abs=1e-9)  # 82.6
 
 
-def test_neutral_site_game_gets_the_home_advantage() -> None:
-    helsinki = table().filter(pl.col("game_id") == 2026020309).row(0, named=True)
+def test_neutral_site_home_advantage() -> None:
+    t = table(games(reverse=True))  # unsorted input: home advantage must follow the sort
+    helsinki = t.filter(pl.col("game_id") == 2026020309).row(0, named=True)  # CAR @ SEA
     assert helsinki["neutral_site"] is True
-    assert helsinki["rating_diff"] == pytest.approx(1458.2 + 27.5 - 1557.4, abs=1e-9)  # -71.7
+    assert helsinki["rating_diff"] == pytest.approx(1458.2 - 1557.4, abs=1e-9)  # -99.2: none
+    salt_lake = t.filter(pl.col("game_id") == 2026020647).row(0, named=True)  # COL @ UTA
+    assert salt_lake["neutral_site"] is True
+    assert salt_lake["rating_diff"] == pytest.approx(1503.5 + 27.5 - 1560.9, abs=1e-9)  # -29.9
 
 
 def test_probabilities_are_the_averaged_outcome_model() -> None:
@@ -354,3 +374,213 @@ def test_team_labels_from_the_real_config() -> None:
     del lineage[68]
     with pytest.raises(SnapshotError, match=r"\['UTA'\]"):
         team_labels(cfg, lineage)
+
+
+# ---- preseason check -------------------------------------------------------------------------
+
+FIRST_START = datetime(2026, 9, 29, 21, 0, tzinfo=UTC)  # 2026020001 FLA @ CAR
+
+
+def test_preseason_returns_the_first_start() -> None:
+    assert check_preseason(games(reverse=True), FIRST_START - timedelta(minutes=1)) == FIRST_START
+
+
+def test_preseason_ends_at_the_first_start() -> None:
+    with pytest.raises(SnapshotError, match="2026-09-29 21:00 UTC"):
+        check_preseason(games(), FIRST_START)
+
+
+def test_preseason_refuses_played_games() -> None:
+    with pytest.raises(SnapshotError, match="1 games already played"):
+        check_preseason(games(played=(2026020309,)), FIRST_START - timedelta(days=1))
+
+
+def test_preseason_needs_an_aware_time_and_games() -> None:
+    with pytest.raises(SnapshotError, match="time zone"):
+        check_preseason(games(), datetime(2026, 9, 29, 12, 0))
+    with pytest.raises(SnapshotError, match="no games"):
+        check_preseason(games().head(0), FIRST_START)
+
+
+# ---- CSV formatting --------------------------------------------------------------------------
+
+
+def small() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "game_id": [2026020001, 2026020309],
+            "game_date": [date(2026, 9, 29), date(2026, 11, 12)],
+            "start_time_utc": [FIRST_START, datetime(2026, 11, 12, 17, 0, tzinfo=UTC)],
+            "home": ["CAR", "SEA"],
+            "neutral_site": [False, True],
+            "rating_diff": [82.6, -0.00001],
+            "p": [0.61563987, 0.125],
+        }
+    )
+
+
+def test_csv_bytes_by_hand() -> None:
+    assert csv_bytes(small(), {"rating_diff": 4}, default=2) == (
+        b"game_id,game_date,start_time_utc,home,neutral_site,rating_diff,p\n"
+        b"2026020001,2026-09-29,2026-09-29T21:00:00Z,CAR,false,82.6000,0.62\n"
+        b"2026020309,2026-11-12,2026-11-12T17:00:00Z,SEA,true,0.0000,0.12\n"
+    )  # -0.00001 -> 0.0000 without sign; 0.125 (exact in binary) -> 0.12 (half to even)
+
+
+def test_csv_bytes_game_table_round_trip() -> None:
+    t = table()
+    text = csv_bytes(t, {"away_rating": 4, "home_rating": 4, "rating_diff": 4}, default=6)
+    assert b"\r" not in text
+    back = pl.read_csv(text)
+    assert back["game_id"].to_list() == t["game_id"].to_list()
+    for c in PROBABILITY_COLUMNS:
+        np.testing.assert_allclose(back[c], t[c], rtol=0, atol=5e-7)
+    np.testing.assert_allclose(back["rating_diff"], t["rating_diff"], rtol=0, atol=5e-5)
+
+
+@pytest.mark.parametrize(
+    ("df", "decimals", "message"),
+    [
+        (small().with_columns(p=pl.Series([0.5, None])), {"rating_diff": 4}, "missing"),
+        (
+            small().with_columns(p=pl.Series([0.5, float("nan")])),
+            {"rating_diff": 4, "p": 6},
+            "finite",
+        ),
+        (
+            small().with_columns(p=pl.Series([0.5, float("inf")])),
+            {"rating_diff": 4, "p": 6},
+            "finite",
+        ),
+        (small(), {"rating_diff": 4}, "no number of decimals for 'p'"),
+        (small(), {"rating_diff": 4, "p": 6, "home": 2}, r"not floats: \['home'\]"),
+        (small(), {"rating_diff": 4, "p": 6, "rating": 2}, r"not floats: \['rating'\]"),
+        (
+            small().with_columns(pl.col("start_time_utc").dt.convert_time_zone("Europe/Warsaw")),
+            {"rating_diff": 4, "p": 6},
+            "UTC",
+        ),
+        (
+            small().with_columns(pl.col("start_time_utc").dt.replace_time_zone(None)),
+            {"rating_diff": 4, "p": 6},
+            "UTC",
+        ),
+    ],
+    ids=["null", "nan", "inf", "no-decimals", "not-float", "unknown", "warsaw", "naive"],
+)
+def test_csv_bytes_refuses(df: pl.DataFrame, decimals: dict, message: str) -> None:
+    with pytest.raises(SnapshotError, match=message):
+        csv_bytes(df, decimals)
+
+
+# ---- manifest and snapshot folder ------------------------------------------------------------
+
+
+def test_manifest_bytes_format() -> None:
+    body = manifest_bytes({"team": "Montréal Canadiens", "n": [1]})
+    assert body == '{\n  "team": "Montréal Canadiens",\n  "n": [\n    1\n  ]\n}\n'.encode()
+    with pytest.raises(ValueError):
+        manifest_bytes({"x": float("nan")})
+
+
+FILES = {"games.csv": b"a,b\n1,2\n3,4\n", "README.md": b"# Snapshot\n"}
+
+
+def test_write_snapshot(tmp_path: Path) -> None:
+    folder = tmp_path / "20262027" / "preseason"
+    written = write_snapshot(folder, FILES, {"snapshot": {"kind": "preseason"}})
+    assert sorted(p.name for p in folder.iterdir()) == ["README.md", "games.csv", MANIFEST]
+    for name, content in FILES.items():
+        assert (folder / name).read_bytes() == content
+    assert list(written) == ["snapshot", "outputs"]
+    assert written["outputs"] == [
+        {"file": "games.csv", "bytes": 12, "sha256": hashlib.sha256(FILES["games.csv"]).hexdigest(),
+         "rows": 2},
+        {"file": "README.md", "bytes": 11, "sha256": hashlib.sha256(b"# Snapshot\n").hexdigest()},
+    ]  # fmt: skip
+    assert (folder / MANIFEST).read_bytes() == manifest_bytes(written)
+    assert json.loads((folder / MANIFEST).read_text(encoding="utf-8")) == written
+
+
+def test_existing_snapshot_is_never_overwritten(tmp_path: Path) -> None:
+    folder = tmp_path / "preseason"
+    folder.mkdir()
+    (folder / "games.csv").write_bytes(b"old\n")
+    with pytest.raises(SnapshotError, match="never overwritten"):
+        write_snapshot(folder, FILES, {})
+    assert [p.name for p in folder.iterdir()] == ["games.csv"]
+    assert (folder / "games.csv").read_bytes() == b"old\n"
+
+
+@pytest.mark.parametrize(
+    ("files", "manifest", "message"),
+    [
+        ({"sub/games.csv": b"a\n"}, {}, "folders"),
+        ({"..": b"a\n"}, {}, "folders"),
+        ({MANIFEST: b"{}\n"}, {}, "written by write_snapshot"),
+        (FILES, {"outputs": []}, "written by write_snapshot"),
+        ({"games.csv": b"a,b\n1,2"}, {}, "newline"),
+        (FILES, {"x": float("nan")}, "Out of range float"),
+    ],
+    ids=["folder", "dotdot", "manifest-file", "outputs-key", "no-final-newline", "nan"],
+)
+def test_bad_snapshots_write_nothing(tmp_path: Path, files, manifest, message: str) -> None:
+    folder = tmp_path / "preseason"
+    with pytest.raises((SnapshotError, ValueError), match=message):
+        write_snapshot(folder, files, manifest)
+    assert not folder.exists()
+
+
+def test_input_record(tmp_path: Path) -> None:
+    path = tmp_path / "config" / "model.yaml"
+    path.parent.mkdir()
+    path.write_bytes(b"sigma: 45.0\n")
+    assert input_record(path, tmp_path) == {
+        "path": "config/model.yaml",
+        "bytes": 12,
+        "sha256": hashlib.sha256(b"sigma: 45.0\n").hexdigest(),
+    }
+
+
+def test_environment() -> None:
+    env = environment()
+    assert list(env["packages"]) == list(PACKAGES)
+    assert env["packages"]["nhlsim"] == nhlsim.__version__
+    assert env["python"].startswith("3.12.")
+
+
+# ---- git state (a real throwaway repository) -------------------------------------------------
+
+needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+
+
+def _git(repo: Path, *args: str) -> str:
+    done = subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=test", "-c", "user.email=test@example.com",
+         *args], capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    return done.stdout.strip()
+
+
+@needs_git
+def test_git_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "a.txt").write_text("a\n", encoding="utf-8")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-q", "-m", "first")
+    head = _git(repo, "rev-parse", "HEAD")
+    assert len(head) == 40
+    assert git_state(repo) == {"commit": head, "dirty": []}
+    (repo / "new.txt").write_text("n\n", encoding="utf-8")
+    (repo / "a.txt").write_text("changed\n", encoding="utf-8")
+    assert git_state(repo) == {"commit": head, "dirty": [" M a.txt", "?? new.txt"]}
+
+
+@needs_git
+def test_git_state_outside_a_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    with pytest.raises(SnapshotError, match="rev-parse HEAD failed"):
+        git_state(tmp_path)

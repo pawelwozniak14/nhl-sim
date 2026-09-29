@@ -13,7 +13,7 @@ was made on reasoning alone and is a candidate for a later experiment.*
 | 2 | Standard 400-point logistic scale, start at 1500 | Convention; choice of units only |
 | 3 | A result is a win or a loss, however the game ended | Standings count wins |
 | 4 | One league-wide home advantage | Measured: team differences are noise |
-| 5 | Home advantage applied to neutral-site games, for now | Small effect; proper fix planned |
+| 5 | Home advantage applied to neutral-site games in rating updates, for now | Small effect; predictions already exclude Europe; full fix planned |
 | 6 | No team-specific overtime or shootout skill | Measured: strength and noise only |
 | 7 | Constant K, zero-sum updates | Simplicity; not tested against alternatives |
 | 8 | Between-season pull toward 1500 | Standard; strength of pull tuned |
@@ -95,18 +95,24 @@ percentage point can't be detected. Win/loss is a coarse measure; the goal model
 can give each team its own home advantage shrunk toward the league value, and on
 this evidence should shrink almost all the way.
 
-### 5. Home advantage applied to neutral-site games, for now
+### 5. Home advantage applied to neutral-site games in rating updates, for now
 
-**Decision.** The listed home team gets the normal $`H`$ even at a neutral site.
+**Decision.** In Elo's own updates (and so in the fits built on them), the listed home
+team gets the normal $`H`$ even at a neutral site. **Predictions differ since task 1.7:**
+the simulator and the frozen game probabilities give neutral-site games outside North
+America (the games in Europe) no home advantage
+([simulator part 2](../simulator/02-season-simulation.md), section 10).
 
 **Alternatives.** $`H = 0`$ for neutral-site games; a separate value per kind of
 neutral site.
 
 **Why.** Of the seven neutral-site games in 2026-27, four are in Europe (truly
 neutral) and three are in the listed home team's region, where some advantage
-plausibly remains. A single "neutral" flag can't tell them apart, so the proper fix
-needs more than the flag. Meanwhile the error is small: about four percentage
-points on four games out of 1,344. Planned for task 4.1.
+plausibly remains. The neutral flag alone can't tell them apart; the venue's time zone
+can. For predictions that is now done (about 3.7 percentage points of home win
+probability on each of the four games). Past ratings still include the home advantage
+in about 22 European games since 2015-16 (0.2% of the games); making the updates and
+fits consistent is planned for task 4.1.
 
 ### 6. No team-specific overtime or shootout skill
 
